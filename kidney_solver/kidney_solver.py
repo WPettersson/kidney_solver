@@ -6,26 +6,24 @@ import argparse
 import time
 import sys
 
-import kidney_digraph
-import kidney_ip
-import kidney_utils
-import kidney_ndds
+from kidney_solver import kidney_digraph, kidney_ip, kidney_utils, kidney_ndds
 
 def solve_kep(cfg, formulation, use_relabelled=True):
 
     formulations = {
         "uef":  ("Uncapped edge formulation", kidney_ip.optimise_uuef),
         "eef": ("EEF", kidney_ip.optimise_eef),
-        "eef_full_red": ("EEF with full reduction by cycle generation", kidney_ip.optimise_eef_full_red),
+        "eef_full_red": ("EEF with full reduction by cycle generation",
+                         kidney_ip.optimise_eef_full_red),
         "hpief_prime": ("HPIEF'", kidney_ip.optimise_hpief_prime),
         "hpief_prime_full_red": ("HPIEF' with full reduction by cycle generation", kidney_ip.optimise_hpief_prime_full_red),
         "hpief_2prime": ("HPIEF''", kidney_ip.optimise_hpief_2prime),
         "hpief_2prime_full_red": ("HPIEF'' with full reduction by cycle generation", kidney_ip.optimise_hpief_2prime_full_red),
         "picef": ("PICEF", kidney_ip.optimise_picef),
         "cf":   ("Cycle formulation",
-                  kidney_ip.optimise_ccf)
+                 kidney_ip.optimise_ccf)
     }
-    
+
     if formulation in formulations:
         formulation_name, formulation_fun = formulations[formulation]
         if use_relabelled:
@@ -68,7 +66,7 @@ def start():
     parser.add_argument("--relax", "-x", required=False,
             action='store_true',
             help="Solve the LP relaxation.")
-            
+
     args = parser.parse_args()
     args.formulation = args.formulation.lower()
 
@@ -83,27 +81,29 @@ def start():
         altruists = kidney_ndds.read_ndds(ndd_lines, d)
     else:
         altruists = []
-        
-    start_time = time.time()
+
+    start_time = time.clock()
     cfg = kidney_ip.OptConfig(d, altruists, args.cycle_cap, args.chain_cap, args.verbose,
                               args.timelimit, args.edge_success_prob, args.eef_alt_constraints,
                               args.lp_file, args.relax)
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
-    time_taken = time.time() - start_time
-    print "formulation: {}".format(args.formulation)
-    print "formulation_name: {}".format(opt_solution.formulation_name)
-    print "using_relabelled: {}".format(args.use_relabelled)
-    print "cycle_cap: {}".format(args.cycle_cap)
-    print "chain_cap: {}".format(args.chain_cap)
-    print "edge_success_prob: {}".format(args.edge_success_prob)
-    print "ip_time_limit: {}".format(args.timelimit)
-    print "ip_vars: {}".format(opt_solution.ip_model.numVars)
-    print "ip_constrs: {}".format(opt_solution.ip_model.numConstrs)
-    print "total_time: {}".format(time_taken)
-    print "ip_solve_time: {}".format(opt_solution.ip_model.runtime)
-    print "solver_status: {}".format(opt_solution.ip_model.status)
-    print "total_score: {}".format(opt_solution.total_score)
+    time_taken = time.clock() - start_time
+    print("formulation: {}".format(args.formulation))
+    print("formulation_name: {}".format(opt_solution.formulation_name))
+    print("using_relabelled: {}".format(args.use_relabelled))
+    print("cycle_cap: {}".format(args.cycle_cap))
+    print("chain_cap: {}".format(args.chain_cap))
+    print("edge_success_prob: {}".format(args.edge_success_prob))
+    print("ip_time_limit: {}".format(args.timelimit))
+    print("ip_vars: {}".format(len(opt_solution.ip_model.variables())))
+    print("ip_constrs: {}".format(len(opt_solution.ip_model.constraints())))
+    print("donors: {}".format(opt_solution.ip_model.donors()))
+    print("total_time: {}".format(time_taken))
+    print("ip_solve_time: {}".format(opt_solution.ip_model.runtime()))
+    print("solver_status: {}".format(opt_solution.ip_model.status()))
+    print("total_score: {}".format(opt_solution.total_score))
     opt_solution.display()
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     start()

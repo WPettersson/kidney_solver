@@ -7,7 +7,7 @@ each of these edges points towards a vertex (which represents a donor-patient pa
 in the directed graph.
 """
 
-from kidney_digraph import KidneyReadException
+from kidney_solver.kidney_digraph import KidneyReadException
 
 class Ndd:
     """A non-directed donor"""
@@ -23,6 +23,9 @@ class NddEdge:
     def __init__(self, target_v, score):
         self.target_v = target_v
         self.score = score
+
+    def __repr__(self):
+        return "NDD_%s_to_%s" % (self.score, self.target_v)
 
 def create_relabelled_ndds(ndds, old_to_new_vtx):
     """Creates a copy of a n array of NDDs, with target vertices changed.
@@ -84,8 +87,8 @@ class Chain(object):
 
     def __repr__(self):
         return ("Chain NDD{} ".format(self.ndd_index) +
-                        " ".join(str(v) for v in self.vtx_indices) +
-                        " with score " + str(self.score))
+                " ".join(str(v) for v in self.vtx_indices) +
+                " with score " + str(self.score))
 
     def __cmp__(self, other):
         # Compare on NDD ID, then chain length, then on score, then

@@ -3,10 +3,17 @@
 some related methods.
 """
 
+import logging
 from collections import deque
 
+
+LOGGER = logging.getLogger(__name__)
+
+
 class KidneyReadException(Exception):
+    """Exception when input strings are invalid."""
     pass
+
 
 def cycle_score(cycle, digraph):
     """Calculate the sum of a cycle's edge scores.
@@ -39,7 +46,10 @@ class Vertex:
         self.edges = []
 
     def __str__(self):
-        return ("V{}".format(self.id))
+        return "V{}".format(self.id)
+
+    def __repr__(self):
+        return self.__str__()
 
 class Edge:
     """An edge in a directed graph (see the Digraph class)."""
@@ -83,7 +93,7 @@ class Digraph:
         self.es.append(e)
         source.edges.append(e)
         self.adj_mat[source.id][tgt.id] = e
-    
+
     def find_cycles(self, max_length):
         """Find cycles of length up to max_length in the digraph.
 
@@ -91,7 +101,7 @@ class Digraph:
             a list of cycles. Each cycle is represented as a list of
             vertices, with the first vertex _not_ repeated at the end.
         """
-        
+
         return [cycle for cycle in self.generate_cycles(max_length)]
 
     def generate_cycles(self, max_length):
