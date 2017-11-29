@@ -3,6 +3,7 @@ IP formulations for kidney exchange, including PICEF
 """
 
 import argparse
+import logging
 import time
 import sys
 
@@ -76,8 +77,17 @@ def start():
     parser.add_argument("--output", "-o", required=False,
                         metavar="FILE",
                         help="Write the solution to FILE instead of stdout")
+    parser.add_argument("--debug", "-d", required=False, action="store_true",
+                        help="Enable debugging output")
+
 
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG,
+                            format='%(asctime)s %(levelname)s:%(name)s '
+                                   '%(message)s')
+
     args.formulation = args.formulation.lower()
 
     input_lines = [line for line in sys.stdin if len(line.strip()) > 0]

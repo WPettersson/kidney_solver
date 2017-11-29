@@ -609,10 +609,11 @@ def optimise_picef(cfg):
                               for ndd in cfg.ndds for e in ndd.edges) +
                      pulp.lpSum(e.score*cfg.edge_success_prob**(pos+1) * var
                             for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
-
+    LOGGER.info("Model complete, sending to solver")
     if obj_expr:
         m += obj_expr
         m.optimise(cfg)
+    LOGGER.info("Model solved, status is %s", pulp.LpStatus[m.status()])
     if m.status() == pulp.LpStatusNotSolved:
         return None
 
