@@ -73,10 +73,15 @@ class OptSolution(object):
 
     def display(self):
         """Print the optimal cycles and chains to standard output."""
+        print(self.__str__())
 
-        print("cycle_count: {}".format(len(self.cycles)))
-        print("chain_count: {}".format(len(self.chains)))
-        print("cycles:")
+    def __str__(self):
+        """Return the solution as a string. One very long string, with newlines.
+        """
+        s = ""
+        s += "cycle_count: {}\n".format(len(self.cycles))
+        s += "chain_count: {}\n".format(len(self.chains))
+        s += "cycles:\n"
         # cs is a list of cycles, with each cycle represented as a list of vertex IDs
         cs = [[v.id for v in c] for c in self.cycles]
         # Put the lowest-indexed vertex at the start of each cycle
@@ -86,10 +91,14 @@ class OptSolution(object):
         # Sort the cycles
         cs.sort()
         for c in cs:
-            print("\t".join(str(v_id) for v_id in c))
-        print("chains:")
-        for c in self.chains:
-            print(str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices))
+            s += "\t".join(str(v_id) for v_id in c)
+            s += "\n"
+        if self.chains:
+            s += "chains:\n"
+            for c in self.chains:
+                s += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
+                s += "\n"
+        return s
 
     def relabelled_copy(self, old_to_new_vertices, new_digraph):
         """Create a copy of the solution with vertices relabelled.
@@ -125,13 +134,11 @@ class OptModel(object):
     def optimise(self, cfg):
         """Optimise"""
         if cfg.lp_file:
-            self.prob.write(cfg.lp_file)
-            sys.exit(0)
+            self.prob.writeLP(cfg.lp_file)
         elif cfg.relax:
             # TODO r = model.relax()
             # r.solve()
             self.solve()
-            sys.exit(0)
         else:
             self.solve()
 
@@ -143,7 +150,7 @@ class OptModel(object):
 
     def status(self):
         """Return the status of the problem."""
-        return pulp.LpStatus[self.prob.status]
+        return self.prob.status
 
     def variables(self):
         """Return the list of variables."""
@@ -282,6 +289,8 @@ def optimise_uuef(cfg):
         m += obj_expr
         m.optimise(cfg)
 
+    if m.status() == pulp.LpStatusNotSolved:
+        return None
     # Try all possible cycle start positions
     cycle_start_vv = range(cfg.digraph.n)
 
@@ -508,6 +517,9 @@ def optimise_hpief_prime(cfg, full_red=False, hpief_2_prime=False):
         m += obj_expr
         m.optimise(cfg)
 
+    if m.status() == pulp.LpStatusNotSolved:
+        return None
+
     cycle_start_vv = []
     cycle_next_vv = {}
 
@@ -601,6 +613,8 @@ def optimise_picef(cfg):
     if obj_expr:
         m += obj_expr
         m.optimise(cfg)
+    if m.status() == pulp.LpStatusNotSolved:
+        return None
 
     return OptSolution(ip_model=m,
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.varValue > 0.5],
@@ -658,6 +672,9 @@ def optimise_ccf(cfg):
     if obj_expr:
         m += obj_expr
         m.optimise(cfg)
+
+    if m.status() == pulp.LpStatusNotSolved:
+        return None
 
     return OptSolution(ip_model=m,
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.varValue > 0.5],
@@ -838,6 +855,9 @@ def optimise_eef(cfg, full_red=False):
         if var.varValue > 0.1:
             cycle_next_vv[edge.src.id] = edge.tgt.id
             cycle_start_vv.append(edge.src.id)
+
+    if m.status() == pulp.LpStatusNotSolved:
+        return None
         
     return OptSolution(ip_model=m,
                        cycles=kidney_utils.selected_edges_to_cycles(

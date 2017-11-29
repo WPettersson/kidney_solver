@@ -30,6 +30,8 @@ def solve_kep(cfg, formulation, use_relabelled=True):
             opt_result = kidney_ip.optimise_relabelled(formulation_fun, cfg)
         else:
             opt_result = formulation_fun(cfg)
+        if not opt_result:
+            return opt_result
         kidney_utils.check_validity(opt_result, cfg.digraph, cfg.ndds, cfg.max_cycle, cfg.max_chain)
         opt_result.formulation_name = formulation_name
         return opt_result
@@ -39,33 +41,41 @@ def solve_kep(cfg, formulation, use_relabelled=True):
 def start():
     parser = argparse.ArgumentParser("Solve a kidney-exchange instance")
     parser.add_argument("cycle_cap", type=int,
-            help="The maximum permitted cycle length")
+                        help="The maximum permitted cycle length")
     parser.add_argument("chain_cap", type=int,
-            help="The maximum permitted number of edges in a chain")
+                        help="The maximum permitted number of edges in a chain")
     parser.add_argument("formulation",
-            help="The IP formulation (uef, eef, eef_full_red, hpief_prime, hpief_2prime, hpief_prime_full_red, hpief_2prime_full_red, picef, cf)")
+                        help=("The IP formulation (uef, eef, eef_full_red, "
+                              "hpief_prime, hpief_2prime, "
+                              "hpief_prime_full_red, hpief_2prime_full_red, "
+                              "picef, cf)"))
     parser.add_argument("--use-relabelled", "-r", required=False,
-            action="store_true",
-            help="Relabel vertices in descending order of in-deg + out-deg")
+                        action="store_true",
+                        help=("Relabel vertices in descending order of "
+                              "in-deg + out-deg"))
     parser.add_argument("--eef-alt-constraints", "-e", required=False,
-            action="store_true",
-            help="Use slightly-modified EEF constraints (ignored for other formulations)")
+                        action="store_true",
+                        help=("Use slightly-modified EEF constraints (ignored "
+                              "for other formulations)"))
     parser.add_argument("--timelimit", "-t", required=False, default=None,
-            type=float,
-            help="IP solver time limit in seconds (default: no time limit)")
-    parser.add_argument("--verbose", "-v", required=False,
-            action="store_true",
-            help="Log Gurobi output to screen and log file")
+                        type=float,
+                        help=("IP solver time limit in seconds (default: no "
+                              "time limit)"))
+    parser.add_argument("--verbose", "-v", required=False, action="store_true",
+                        help="Log Gurobi output to screen and log file")
     parser.add_argument("--edge-success-prob", "-p", required=False,
-            type=float, default=1.0,
-            help="Edge success probability, for failure-aware matching. " +
-                 "This can only be used with PICEF and cycle formulation. (default: 1)")
+                        type=float, default=1.0,
+                        help=("Edge success probability, for failure-aware "
+                              "matching. This can only be used with PICEF and "
+                              "cycle formulation. (default: 1)"))
     parser.add_argument("--lp-file", "-l", required=False, default=None,
-            metavar='FILE',
-            help="Write the IP model to FILE, then exit.")
-    parser.add_argument("--relax", "-x", required=False,
-            action='store_true',
-            help="Solve the LP relaxation.")
+                        metavar='FILE',
+                        help="Write the IP model to FILE, then exit.")
+    parser.add_argument("--relax", "-x", required=False, action='store_true',
+                        help="Solve the LP relaxation.")
+    parser.add_argument("--output", "-o", required=False,
+                        metavar="FILE",
+                        help="Write the solution to FILE instead of stdout")
 
     args = parser.parse_args()
     args.formulation = args.formulation.lower()
@@ -89,20 +99,27 @@ def start():
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
     time_taken = time.clock() - start_time
     print("formulation: {}".format(args.formulation))
-    print("formulation_name: {}".format(opt_solution.formulation_name))
+    if opt_solution:
+        print("formulation_name: {}".format(opt_solution.formulation_name))
     print("using_relabelled: {}".format(args.use_relabelled))
     print("cycle_cap: {}".format(args.cycle_cap))
     print("chain_cap: {}".format(args.chain_cap))
     print("edge_success_prob: {}".format(args.edge_success_prob))
+    print("total_time: {}".format(time_taken))
+    if not opt_solution:
+        return
     print("ip_time_limit: {}".format(args.timelimit))
     print("ip_vars: {}".format(len(opt_solution.ip_model.variables())))
     print("ip_constrs: {}".format(len(opt_solution.ip_model.constraints())))
     print("donors: {}".format(opt_solution.ip_model.donors()))
-    print("total_time: {}".format(time_taken))
     print("ip_solve_time: {}".format(opt_solution.ip_model.runtime()))
     print("solver_status: {}".format(opt_solution.ip_model.status()))
     print("total_score: {}".format(opt_solution.total_score))
-    opt_solution.display()
+    if args.output:
+        with open(args.output, 'w') as outfile:
+            outfile.write(str(opt_solution))
+    else:
+        opt_solution.display()
 
 
 if __name__ == "__main__":
