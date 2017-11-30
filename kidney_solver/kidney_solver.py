@@ -68,6 +68,9 @@ def start():
     parser.add_argument("--relax", "-x", required=False,
             action='store_true',
             help="Solve the LP relaxation.")
+    parser.add_argument("--output", "-o", required=False,
+                        metavar='FILE',
+                        help="Write solution to FILE")
             
     args = parser.parse_args()
     args.formulation = args.formulation.lower()
@@ -103,7 +106,11 @@ def start():
     print("ip_solve_time: {}".format(opt_solution.ip_model.runtime))
     print("solver_status: {}".format(opt_solution.ip_model.status))
     print("total_score: {}".format(opt_solution.total_score))
-    opt_solution.display()
+    if args.output:
+        with open(args.output, 'w') as outfile:
+            outfile.write(str(opt_solution))
+    else:
+        opt_solution.display()
 
 if __name__=="__main__":
     start()

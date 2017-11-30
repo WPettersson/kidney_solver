@@ -68,10 +68,14 @@ class OptSolution(object):
 
     def display(self):
         """Print the optimal cycles and chains to standard output."""
+        print(str(self))
 
-        print("cycle_count: {}".format(len(self.cycles)))
-        print("chain_count: {}".format(len(self.chains)))
-        print("cycles:")
+    def __str__(self):
+        """Get a string representation of the solution."""
+        s = ""
+        s += "cycle_count: {}\n".format(len(self.cycles))
+        s += "chain_count: {}\n".format(len(self.chains))
+        s += "cycles:\n"
         # cs is a list of cycles, with each cycle represented as a list of vertex IDs
         cs = [[v.id for v in c] for c in self.cycles]
         # Put the lowest-indexed vertex at the start of each cycle
@@ -81,10 +85,12 @@ class OptSolution(object):
         # Sort the cycles
         cs.sort()
         for c in cs:
-            print("\t".join(str(v_id) for v_id in c))
-        print("chains:")
+            s += "\t".join(str(v_id) for v_id in c) + "\n"
+        s += "chains:\n"
         for c in self.chains:
-            print(str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices))
+            s += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
+            s += "\n"
+        return s
 
     def relabelled_copy(self, old_to_new_vertices, new_digraph):
         """Create a copy of the solution with vertices relabelled.
