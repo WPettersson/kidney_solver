@@ -1,7 +1,7 @@
 from collections import deque
 
-from kidney_digraph import *
-import kidney_ndds
+from kidney_solver.kidney_digraph import *
+from kidney_solver import kidney_ndds
 
 EPS = 0.00001
 
