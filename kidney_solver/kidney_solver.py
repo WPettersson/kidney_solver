@@ -34,8 +34,10 @@ def solve_kep(cfg, formulation, use_relabelled=True):
             opt_result = kidney_ip.optimise_relabelled(formulation_fun, cfg)
         else:
             opt_result = formulation_fun(cfg)
-        kidney_utils.check_validity(opt_result, cfg.digraph, cfg.ndds, cfg.max_cycle, cfg.max_chain)
-        opt_result.formulation_name = formulation_name
+        if opt_result:
+            kidney_utils.check_validity(opt_result, cfg.digraph, cfg.ndds,
+                                        cfg.max_cycle, cfg.max_chain)
+            opt_result.formulation_name = formulation_name
         return opt_result
     else:
         raise ValueError("Unrecognised IP formulation name")
@@ -109,23 +111,27 @@ def start():
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
     time_taken = time.time() - start_time
     print("formulation: {}".format(args.formulation))
-    print("formulation_name: {}".format(opt_solution.formulation_name))
+    if opt_solution:
+        print("formulation_name: {}".format(opt_solution.formulation_name))
     print("using_relabelled: {}".format(args.use_relabelled))
     print("cycle_cap: {}".format(args.cycle_cap))
     print("chain_cap: {}".format(args.chain_cap))
     print("edge_success_prob: {}".format(args.edge_success_prob))
-    print("ip_time_limit: {}".format(args.timelimit))
-    print("ip_vars: {}".format(opt_solution.ip_model.numVars))
-    print("ip_constrs: {}".format(opt_solution.ip_model.numConstrs))
+    if opt_solution:
+        print("ip_time_limit: {}".format(args.timelimit))
+        print("ip_vars: {}".format(opt_solution.ip_model.numVars))
+        print("ip_constrs: {}".format(opt_solution.ip_model.numConstrs))
     print("total_time: {}".format(time_taken))
-    print("ip_solve_time: {}".format(opt_solution.ip_model.runtime))
-    print("solver_status: {}".format(opt_solution.ip_model.status))
-    print("total_score: {}".format(opt_solution.total_score))
-    if args.output:
-        with open(args.output, 'w') as outfile:
-            outfile.write(str(opt_solution))
-    else:
-        opt_solution.display()
+    if opt_solution:
+        print("ip_solve_time: {}".format(opt_solution.ip_model.runtime))
+        print("solver_status: {}".format(opt_solution.ip_model.status))
+        print("total_score: {}".format(opt_solution.total_score))
+    if opt_solution:
+        if args.output:
+            with open(args.output, 'w') as outfile:
+                outfile.write(str(opt_solution))
+        else:
+            opt_solution.display()
 
 if __name__ == "__main__":
     start()

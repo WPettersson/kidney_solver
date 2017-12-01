@@ -1,6 +1,7 @@
 """Solving the kidney-exchange problem using the Gurobi IP solver."""
 
 import copy
+import logging
 import sys
 
 from kidney_solver.kidney_digraph import *
@@ -8,6 +9,9 @@ from kidney_solver.kidney_ndds import *
 from kidney_solver import kidney_utils
 
 from gurobipy import *
+
+
+LOGGER = logging.getLogger(__name__)
 
 ###################################################################################################
 #                                                                                                 #
@@ -72,10 +76,11 @@ class OptSolution(object):
 
     def __str__(self):
         """Get a string representation of the solution."""
-        s = ""
-        s += "cycle_count: {}\n".format(len(self.cycles))
-        s += "chain_count: {}\n".format(len(self.chains))
-        s += "cycles:\n"
+        total = 0
+        string = ""
+        string += "cycle_count: {}\n".format(len(self.cycles))
+        string += "chain_count: {}\n".format(len(self.chains))
+        string += "cycles:\n"
         # cs is a list of cycles, with each cycle represented as a list of vertex IDs
         cs = [[v.id for v in c] for c in self.cycles]
         # Put the lowest-indexed vertex at the start of each cycle
@@ -85,12 +90,16 @@ class OptSolution(object):
         # Sort the cycles
         cs.sort()
         for c in cs:
-            s += "\t".join(str(v_id) for v_id in c) + "\n"
-        s += "chains:\n"
+            string += "\t".join(str(v_id) for v_id in c) + " length " + "\n"
+            total += len(c)
+            string += "total is %d\n" % total
+        string += "chains:\n"
         for c in self.chains:
-            s += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
-            s += "\n"
-        return s
+            string += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
+            string += "\n"
+            total += len(c) - 1
+        string += "total number of transplants: %d" % total
+        return string
 
     def relabelled_copy(self, old_to_new_vertices, new_digraph):
         """Create a copy of the solution with vertices relabelled.
@@ -113,7 +122,6 @@ def optimise(model, cfg):
     if cfg.lp_file:
         model.update()
         model.write(cfg.lp_file)
-        sys.exit(0)
     elif cfg.relax:
         model.update()
         r = model.relax()
@@ -122,7 +130,9 @@ def optimise(model, cfg):
         print("lp_relax_solver_status:", r.status)
         sys.exit(0)
     else:
+        LOGGER.debug("Starting optimiser")
         model.optimize()
+        LOGGER.debug("Optimizer finished")
 
 def optimise_relabelled(formulation_fun, cfg):
     """Optimise on a relabelled graph such that vertices are sorted in descending
@@ -516,28 +526,34 @@ def optimise_picef(cfg):
     Returns:
         an OptSolution object
     """
-
+    LOGGER.info("Using PICEF formulation")
+    LOGGER.info("Finding cycles")
     cycles = cfg.digraph.find_cycles(cfg.max_cycle)
-
     m = create_ip_model(cfg.timelimit, cfg.verbose)
     m.params.method = 2
 
+    LOGGER.info("Adding cycle variables")
     cycle_vars = [m.addVar(vtype=GRB.BINARY) for __ in cycles]
     m.update()
-    
+
     vtx_to_vars = [[] for __ in cfg.digraph.vs]
-    
+
+    LOGGER.info("Adding chain variables and constraints")
     add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, m,
             vtx_to_vars, store_edge_positions=cfg.edge_success_prob!=1)
 
+    # vtx_to_vars has a list for each vertex, that list contains the cycles
+    # incident with said vertex
     for i, c in enumerate(cycles):
         for v in c:
             vtx_to_vars[v.id].append(cycle_vars[i])
 
+    LOGGER.info("Adding vertex constraints")
     for l in vtx_to_vars:
         if len(l) > 0:
             m.addConstr(quicksum(l) <= 1)
 
+    LOGGER.info("Calculating objective")
     if cfg.max_chain==0:
         obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
                             for c, var in zip(cycles, cycle_vars))
@@ -554,7 +570,11 @@ def optimise_picef(cfg):
                             for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
 
     m.setObjective(obj_expr, GRB.MAXIMIZE)
+
     optimise(m, cfg)
+
+    if m.status != GRB.OPTIMAL:
+        return None
 
     return OptSolution(ip_model=m,
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
