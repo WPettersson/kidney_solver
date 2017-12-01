@@ -33,11 +33,12 @@ class OptConfig(object):
         eef_alt_constraints: True if and only if alternative EEF constraints should be used
         lp_file: The name of a .lp file to write, or None if the file should not be written
         relax: True if and only if the LP relaxation should be solved also
+        only_size: True if we only maximise size of matching, not weights
     """
 
     def __init__(self, digraph, ndds, max_cycle, max_chain, verbose=False,
                  timelimit=None, edge_success_prob=1, eef_alt_constraints=False,
-                 lp_file=None, relax=False):
+                 lp_file=None, relax=False, size=False):
         self.digraph = digraph
         self.ndds = ndds
         self.max_cycle = max_cycle
@@ -48,6 +49,7 @@ class OptConfig(object):
         self.eef_alt_constraints = eef_alt_constraints
         self.lp_file = lp_file
         self.relax = relax
+        self._only_size = size
 
 class OptSolution(object):
     """An optimal solution for a kidney-exchange problem instance.
@@ -97,7 +99,7 @@ class OptSolution(object):
         for c in self.chains:
             string += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
             string += "\n"
-            total += len(c) - 1
+            total += len(c)
         string += "total number of transplants: %d" % total
         return string
 
@@ -555,19 +557,36 @@ def optimise_picef(cfg):
 
     LOGGER.info("Calculating objective")
     if cfg.max_chain==0:
-        obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
-                            for c, var in zip(cycles, cycle_vars))
+        if cfg._only_size:
+            obj_expr = quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
+                                for c, var in zip(cycles, cycle_vars))
+        else:
+            obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                for c, var in zip(cycles, cycle_vars))
     elif cfg.edge_success_prob == 1:
-        obj_expr = ( quicksum(cycle_score(c, cfg.digraph) * var for c, var in zip(cycles, cycle_vars)) +
-                     quicksum(e.score * e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
-                     quicksum(e.score * var for e in cfg.digraph.es for var in e.grb_vars) )
+        if cfg._only_size:
+            obj_expr = (quicksum(len(c) * var for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
+                        quicksum(var for e in cfg.digraph.es for var in e.grb_vars) )
+        else:
+            obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score * e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
+                        quicksum(e.score * var for e in cfg.digraph.es for var in e.grb_vars) )
     else:
-        obj_expr = ( quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
-                              for c, var in zip(cycles, cycle_vars)) +
-                     quicksum(e.score*cfg.edge_success_prob * e.edge_var
-                              for ndd in cfg.ndds for e in ndd.edges) +
-                     quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
-                            for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+        if cfg._only_size:
+            obj_expr = ( quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var
+                                for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(cfg.edge_success_prob * e.edge_var
+                                for ndd in cfg.ndds for e in ndd.edges) +
+                        quicksum(cfg.edge_success_prob**(pos+1) * var
+                                for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+        else:
+            obj_expr = ( quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score*cfg.edge_success_prob * e.edge_var
+                                for ndd in cfg.ndds for e in ndd.edges) +
+                        quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
+                                for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
 
     m.setObjective(obj_expr, GRB.MAXIMIZE)
 
@@ -611,7 +630,7 @@ def optimise_ccf(cfg):
     
     ndd_to_vars = [[] for __ in cfg.ndds]
     vtx_to_vars = [[] for __ in cfg.digraph.vs]
-    
+
     for var, c in zip(cycle_vars, cycles):
         for v in c:
             vtx_to_vars[v.id].append(var)
@@ -626,10 +645,15 @@ def optimise_ccf(cfg):
         if len(l) > 0:
             m.addConstr(quicksum(l) <= 1)
 
-    obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
-                         for (c, var) in zip(cycles, cycle_vars)) +
-                quicksum(c.score * var for (c, var) in zip(chains, chain_vars)))
-        
+    if cfg._only_size:
+        obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
+                            for (c, var) in zip(cycles, cycle_vars)) +
+                    quicksum(len(c) * var for (c, var) in zip(chains, chain_vars)))
+    else:
+        obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                            for (c, var) in zip(cycles, cycle_vars)) +
+                    quicksum(c.score * var for (c, var) in zip(chains, chain_vars)))
+
     m.setObjective(obj_expr, GRB.MAXIMIZE)
     optimise(m, cfg)
 
