@@ -11,16 +11,20 @@ class Ndd:
     """A non-directed donor"""
     def __init__(self):
         self.edges = []
-    def add_edge(self, ndd_edge):
+    def add_edge(self, target, score, explanation):
         """Add an edge representing compatibility with a patient who appears as a
         vertex in the directed graph."""
-        self.edges.append(ndd_edge)
+        self.edges.append(NddEdge(target, score, explanation))
 
 class NddEdge:
     """An edge pointing from an NDD to a vertex in the directed graph"""
-    def __init__(self, target_v, score):
+    def __init__(self, target_v, score, explanation):
         self.target_v = target_v
         self.score = score
+        self._expln = explanation
+
+    def explanation(self):
+        return self._expln
 
 def create_relabelled_ndds(ndds, old_to_new_vtx):
     """Creates a copy of a n array of NDDs, with target vertices changed.
@@ -76,6 +80,9 @@ class Chain(object):
                 elif i > j:
                     return 1
         return 0
+
+    def __len__(self):
+        return len(self.vtx_indices)
             
 def find_chains(digraph, ndds, max_chain, edge_success_prob=1):
     """Generate all chains with up to max_chain edges."""

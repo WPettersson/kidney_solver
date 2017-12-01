@@ -41,11 +41,12 @@ class Vertex:
 class Edge:
     """An edge in a directed graph (see the Digraph class)."""
 
-    def __init__(self, id, score, src, tgt):
+    def __init__(self, id, score, src, tgt, explanation):
         self.id = id
         self.score = score
         self.src = src   # source vertex
         self.tgt = tgt # target vertex
+        self._expln = explanation  # String to identify this transplant
 
     def __str__(self):
         return ("V" + str(self.src.id) + "-V" + str(self.tgt.id))
@@ -66,17 +67,18 @@ class Digraph:
         self.adj_mat = [[None for x in range(n)] for x in range(n)]
         self.es = []
 
-    def add_edge(self, score, source, tgt):
+    def add_edge(self, score, source, tgt, explanation):
         """Add an edge to the digraph
 
         Args:
             score: the edge's score, as a float
             source: the source Vertex
             tgt: the edge's target Vertex
+            explanation: A description of the transplant represented by this edge.
         """
 
         id = len(self.es)
-        e = Edge(id, score, source, tgt)
+        e = Edge(id, score, source, tgt, explanation)
         self.es.append(e)
         source.edges.append(e)
         self.adj_mat[source.id][tgt.id] = e
@@ -196,6 +198,7 @@ class Digraph:
             self.add_edge(v1, v2, new_score)
         if self.adj_mat[v1.id][v2.id].score < new_score:
             self.adj_mat[v1.id][v2.id].score = new_score
+            self.adj_mat[v1.id][v2.id]._expln = new_explanation
 
 
     def induced_subgraph(self, vertices):
