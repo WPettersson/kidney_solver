@@ -7,8 +7,6 @@ each of these edges points towards a vertex (which represents a donor-patient pa
 in the directed graph.
 """
 
-from kidney_solver.kidney_digraph import KidneyReadException
-
 class Ndd:
     """A non-directed donor"""
     def __init__(self):
@@ -33,40 +31,9 @@ def create_relabelled_ndds(ndds, old_to_new_vtx):
     new_ndds = [Ndd() for ndd in ndds]
     for i, ndd in enumerate(ndds):
         for edge in ndd.edges:
-            new_ndds[i].add_edge(NddEdge(old_to_new_vtx[edge.target_v.id], edge.score))
+            new_ndds[i].add_edge(NddEdge(old_to_new_vtx[edge.target_v.id], edge.score, edge.explanation()))
 
     return new_ndds
-
-def read_ndds(lines, digraph):
-    """Reads NDDs from an array of strings in the .ndd format."""
-
-    ndds = []
-    ndd_count, edge_count = [int(x) for x in lines[0].split()]
-    ndds = [Ndd() for _ in range(ndd_count)]
-
-    # Keep track of which edges have been created already so that we can
-    # detect duplicates
-    edge_exists = [[False for v in digraph.vs] for ndd in ndds]
-
-    for line in lines[1:edge_count+1]:
-        tokens = [t for t in line.split()]
-        src_id = int(tokens[0])
-        tgt_id = int(tokens[1])
-        score = float(tokens[2])
-        if src_id < 0 or src_id >= ndd_count:
-            raise KidneyReadException("NDD index {} out of range.".format(src_id))
-        if tgt_id < 0 or tgt_id >= digraph.n:
-            raise KidneyReadException("Vertex index {} out of range.".format(tgt_id))
-        if edge_exists[src_id][tgt_id]:
-            raise KidneyReadException(
-                    "Duplicate edge from NDD {0} to vertex {1}.".format(src_id, tgt_id))
-        ndds[src_id].add_edge(NddEdge(digraph.vs[tgt_id], score))
-        edge_exists[src_id][tgt_id] = True
-
-    if lines[edge_count+1].split()[0] != "-1" or len(lines) < edge_count+2:
-        raise KidneyReadException("Incorrect edge count")
-
-    return ndds
 
 class Chain(object):
     """A chain initiated by an NDD.

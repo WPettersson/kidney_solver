@@ -11,6 +11,7 @@ from kidney_solver import kidney_digraph
 from kidney_solver import kidney_ip
 from kidney_solver import kidney_utils
 from kidney_solver import kidney_ndds
+from kidney_solver import readers
 
 def solve_kep(cfg, formulation, use_relabelled=True):
 
@@ -24,9 +25,9 @@ def solve_kep(cfg, formulation, use_relabelled=True):
         "hpief_2prime_full_red": ("HPIEF'' with full reduction by cycle generation", kidney_ip.optimise_hpief_2prime_full_red),
         "picef": ("PICEF", kidney_ip.optimise_picef),
         "cf":   ("Cycle formulation",
-                  kidney_ip.optimise_ccf)
+                 kidney_ip.optimise_ccf)
     }
-    
+
     if formulation in formulations:
         formulation_name, formulation_fun = formulations[formulation]
         if use_relabelled:
@@ -67,8 +68,8 @@ def start():
             metavar='FILE',
             help="Write the IP model to FILE, then exit.")
     parser.add_argument("--relax", "-x", required=False,
-            action='store_true',
-            help="Solve the LP relaxation.")
+                        action='store_true',
+                        help="Solve the LP relaxation.")
     parser.add_argument("--output", "-o", required=False,
                         metavar='FILE',
                         help="Write solution to FILE")
@@ -86,20 +87,24 @@ def start():
     args.formulation = args.formulation.lower()
 
     input_lines = [line for line in sys.stdin if len(line.strip()) > 0]
-    n_digraph_edges = int(input_lines[0].split()[1])
-    digraph_lines = input_lines[:n_digraph_edges + 2]
-
-    d = kidney_digraph.read_digraph(digraph_lines)
-
-    if len(input_lines) > len(digraph_lines):
-        ndd_lines = input_lines[n_digraph_edges + 2:]
-        altruists = kidney_ndds.read_ndds(ndd_lines, d)
+    if input_lines[0].strip() == "{":  # JSON input
+        digraph, altruists = readers.read_digraph_json(input_lines)
     else:
-        altruists = []
-        
+        n_digraph_edges = int(input_lines[0].split()[1])
+        digraph_lines = input_lines[:n_digraph_edges + 2]
+
+        digraph = readers.read_digraph(digraph_lines)
+
+        if len(input_lines) > len(digraph_lines):
+            ndd_lines = input_lines[n_digraph_edges + 2:]
+            altruists = readers.read_ndds(ndd_lines, digraph)
+        else:
+            altruists = []
+
     start_time = time.time()
-    cfg = kidney_ip.OptConfig(d, altruists, args.cycle_cap, args.chain_cap, args.verbose,
-                              args.timelimit, args.edge_success_prob, args.eef_alt_constraints,
+    cfg = kidney_ip.OptConfig(digraph, altruists, args.cycle_cap,
+                              args.chain_cap, args.verbose, args.timelimit,
+                              args.edge_success_prob, args.eef_alt_constraints,
                               args.lp_file, args.relax)
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
     time_taken = time.time() - start_time
@@ -122,5 +127,5 @@ def start():
     else:
         opt_solution.display()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     start()

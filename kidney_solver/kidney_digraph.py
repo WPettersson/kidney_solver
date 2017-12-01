@@ -5,9 +5,6 @@ some related methods.
 
 from collections import deque
 
-class KidneyReadException(Exception):
-    pass
-
 def cycle_score(cycle, digraph):
     """Calculate the sum of a cycle's edge scores.
 
@@ -191,7 +188,16 @@ class Digraph:
         """Returns true if and only if an edge exists from Vertex v1 to Vertex v2."""
 
         return self.adj_mat[v1.id][v2.id] is not None
-                    
+
+    def update_edge(self, v1, v2, new_score, new_explanation):
+        """If an edge exists, update its score, but only if the new score is
+        higher."""
+        if not self.edge_exists(v1, v2):
+            self.add_edge(v1, v2, new_score)
+        if self.adj_mat[v1.id][v2.id].score < new_score:
+            self.adj_mat[v1.id][v2.id].score = new_score
+
+
     def induced_subgraph(self, vertices):
         """Returns the subgraph indiced by a given list of vertices."""
 
@@ -207,30 +213,3 @@ class Digraph:
 
     def __str__(self):
         return "\n".join([str(v) for v in self.vs])
-        
-def read_digraph(lines):
-    """Reads a digraph from an array of strings in the input format."""
-
-    vtx_count, edge_count = [int(x) for x in lines[0].split()]
-    digraph = Digraph(vtx_count)
-    for line in lines[1:edge_count+1]:
-        tokens = [x for x in line.split()]
-        src_id = int(tokens[0])
-        tgt_id = int(tokens[1])
-        if src_id < 0 or src_id >= vtx_count:
-            raise KidneyReadException("Vertex index {} out of range.".format(src_id))
-        if tgt_id < 0 or tgt_id >= vtx_count:
-            raise KidneyReadException("Vertex index {} out of range.".format(tgt_id))
-        if src_id == tgt_id:
-            raise KidneyReadException("Self-loop from {0} to {0} not permitted".format(src_id))
-        if digraph.edge_exists(digraph.vs[src_id], digraph.vs[tgt_id]):
-            raise KidneyReadException("Duplicate edge from {} to {}".format(src_id, tgt_id))
-        score = float(tokens[2])
-            
-        digraph.add_edge(score, digraph.vs[src_id], digraph.vs[tgt_id])
-
-    if lines[edge_count+1].split()[0] != "-1" or len(lines) < edge_count+2:
-        raise KidneyReadException("Incorrect edge count")
-
-    return digraph
-
