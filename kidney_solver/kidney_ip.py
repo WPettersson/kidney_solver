@@ -50,6 +50,8 @@ class OptConfig(object):
         self.lp_file = lp_file
         self.relax = relax
         self._only_size = size
+        if size:
+            LOGGER.info("Only optimising for size.")
 
 class OptSolution(object):
     """An optimal solution for a kidney-exchange problem instance.
@@ -92,9 +94,8 @@ class OptSolution(object):
         # Sort the cycles
         cs.sort()
         for c in cs:
-            string += "\t".join(str(v_id) for v_id in c) + " length " + "\n"
+            string += "\t".join(str(v_id) for v_id in c) + "\n"
             total += len(c)
-            string += "total is %d\n" % total
         string += "chains:\n"
         for c in self.chains:
             string += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
@@ -618,7 +619,9 @@ def optimise_ccf(cfg):
         an OptSolution object
     """
 
+    LOGGER.info("Finding cycles")
     cycles = cfg.digraph.find_cycles(cfg.max_cycle)
+    LOGGER.info("Finding chains")
     chains = find_chains(cfg.digraph, cfg.ndds, cfg.max_chain, cfg.edge_success_prob)
         
     m = create_ip_model(cfg.timelimit, cfg.verbose)
@@ -640,11 +643,13 @@ def optimise_ccf(cfg):
         for v in c.vtx_indices:
             vtx_to_vars[v].append(var)
 
+    LOGGER.info("Adding vertex constraints")
     # Each donor-patient pair and each each NDD is in at most one chosen cycle or chain
     for l in vtx_to_vars + ndd_to_vars:
         if len(l) > 0:
             m.addConstr(quicksum(l) <= 1)
 
+    LOGGER.info("Calculating objective")
     if cfg._only_size:
         obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
                             for (c, var) in zip(cycles, cycle_vars)) +
