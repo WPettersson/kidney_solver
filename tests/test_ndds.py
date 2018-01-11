@@ -1,7 +1,8 @@
 import nose.tools
 
-from kidney_solver.kidney_digraph import *
 import kidney_solver.kidney_ndds as k_ndds
+from kidney_solver.kidney_digraph import *
+from kidney_solver.readers import KidneyReadException
 from tests.test_ip import read_with_ndds
 
 @nose.tools.raises(KidneyReadException)

@@ -1,4 +1,5 @@
 from kidney_solver.kidney_digraph import *
+from kidney_solver.readers import read_digraph, read_ndds, KidneyReadException
 import kidney_solver.kidney_ip as k_ip
 import kidney_solver.kidney_ndds as k_ndds
 import kidney_solver.kidney_utils as k_utils
@@ -10,7 +11,7 @@ def read_with_ndds(basename):
     d = read_digraph(lines)
     with open(basename + ".ndds") as f:
         lines = f.readlines()
-    ndds = k_ndds.read_ndds(lines, d)
+    ndds = read_ndds(lines, d)
     return d, ndds
 
 def test_counter():

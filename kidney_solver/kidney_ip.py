@@ -8,7 +8,7 @@ from kidney_solver.kidney_digraph import *
 from kidney_solver.kidney_ndds import *
 from kidney_solver import kidney_utils
 
-from gurobipy import *
+from gurobipy import quicksum, Model, GRB
 
 
 LOGGER = logging.getLogger(__name__)

@@ -67,7 +67,7 @@ class Digraph:
         self.adj_mat = [[None for x in range(n)] for x in range(n)]
         self.es = []
 
-    def add_edge(self, score, source, tgt, explanation):
+    def add_edge(self, score, source, tgt, explanation=""):
         """Add an edge to the digraph
 
         Args:

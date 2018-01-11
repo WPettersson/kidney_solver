@@ -3,6 +3,7 @@ import time
 import nose.tools
 
 from kidney_solver.kidney_digraph import *
+from kidney_solver.readers import KidneyReadException, read_digraph
 from tests.simple_find_cycles import simple_find_cycles
 
 def read(filename):
