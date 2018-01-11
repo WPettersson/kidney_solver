@@ -565,71 +565,219 @@ def optimise_picef(cfg):
     LOGGER.info("Using PICEF formulation")
     LOGGER.info("Finding cycles")
     cycles = cfg.digraph.find_cycles(cfg.max_cycle)
-    m = create_ip_model(cfg.timelimit, cfg.verbose)
-    m.params.method = 2
+    model = create_ip_model(cfg.timelimit, cfg.verbose)
+    model.params.method = 2
 
     LOGGER.info("Adding cycle variables")
-    cycle_vars = [m.addVar(vtype=GRB.BINARY) for __ in cycles]
-    m.update()
+    cycle_vars = [model.addVar(vtype=GRB.BINARY) for __ in cycles]
+    model.update()
 
     vtx_to_vars = [[] for __ in cfg.digraph.vs]
 
     LOGGER.info("Adding chain variables and constraints")
-    add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, m,
-            vtx_to_vars, store_edge_positions=cfg.edge_success_prob!=1)
+    add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, model, vtx_to_vars,
+                                   store_edge_positions=cfg.edge_success_prob != 1)
 
     # vtx_to_vars has a list for each vertex, that list contains the cycles
     # incident with said vertex
-    for i, c in enumerate(cycles):
-        for v in c:
-            vtx_to_vars[v.id].append(cycle_vars[i])
+    for index, cycle in enumerate(cycles):
+        for vert in cycle:
+            vtx_to_vars[vert.id].append(cycle_vars[index])
 
     LOGGER.info("Adding vertex constraints")
-    for l in vtx_to_vars:
-        if len(l) > 0:
-            m.addConstr(quicksum(l) <= 1)
+    for var_list in vtx_to_vars:
+        if var_list:
+            model.addConstr(quicksum(var_list) <= 1)
 
     LOGGER.info("Calculating objective")
-    if cfg.max_chain==0:
-        if cfg._only_size:
+    if cfg.max_chain == 0:
+        if cfg.only_size():
             obj_expr = quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
                                 for c, var in zip(cycles, cycle_vars))
         else:
             obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
                                 for c, var in zip(cycles, cycle_vars))
     elif cfg.edge_success_prob == 1:
-        if cfg._only_size:
+        if cfg.only_size():
             obj_expr = (quicksum(len(c) * var for c, var in zip(cycles, cycle_vars)) +
                         quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
-                        quicksum(var for e in cfg.digraph.es for var in e.grb_vars) )
+                        quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
         else:
-            obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var for c, var in zip(cycles, cycle_vars)) +
-                        quicksum(e.score * e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
-                        quicksum(e.score * var for e in cfg.digraph.es for var in e.grb_vars) )
+            obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var
+                                 for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score * e.edge_var for ndd in cfg.ndds
+                                 for e in ndd.edges) +
+                        quicksum(e.score * var for e in cfg.digraph.es
+                                 for var in e.grb_vars))
     else:
-        if cfg._only_size:
-            obj_expr = ( quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var
-                                for c, var in zip(cycles, cycle_vars)) +
+        if cfg.only_size():
+            obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var
+                                 for c, var in zip(cycles, cycle_vars)) +
                         quicksum(cfg.edge_success_prob * e.edge_var
-                                for ndd in cfg.ndds for e in ndd.edges) +
+                                 for ndd in cfg.ndds for e in ndd.edges) +
                         quicksum(cfg.edge_success_prob**(pos+1) * var
-                                for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+                                 for e in cfg.digraph.es
+                                 for var, pos in zip(e.grb_vars, e.grb_var_positions)))
         else:
-            obj_expr = ( quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
-                                for c, var in zip(cycles, cycle_vars)) +
+            obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                 for c, var in zip(cycles, cycle_vars)) +
                         quicksum(e.score*cfg.edge_success_prob * e.edge_var
-                                for ndd in cfg.ndds for e in ndd.edges) +
+                                 for ndd in cfg.ndds for e in ndd.edges) +
                         quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
-                                for e in cfg.digraph.es for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+                                 for e in cfg.digraph.es
+                                 for var, pos in zip(e.grb_vars, e.grb_var_positions)))
 
-    m.setObjective(obj_expr, GRB.MAXIMIZE)
+    model.setObjective(obj_expr, GRB.MAXIMIZE)
 
-    optimise(m, cfg)
+    optimise(model, cfg)
 
-    if m.status != GRB.OPTIMAL:
+    if model.status != GRB.OPTIMAL:
         return None
 
-    return OptSolution(ip_model=m,
+    return OptSolution(ip_model=model,
+                       cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
+                       chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
+                            cfg.digraph, cfg.ndds, cfg.edge_success_prob),
+                       digraph=cfg.digraph,
+                       edge_success_prob=cfg.edge_success_prob)
+
+
+
+def optimise_nhs_picef(cfg):
+    """Optimise using the PICEF formulation, but use the NHS objectives.
+
+    Args:
+        cfg: an OptConfig object
+
+    Returns:
+        an OptSolution object
+    """
+    LOGGER.info("Using PICEF formulation with NHS objectives")
+    LOGGER.info("Finding cycles")
+    cycles = cfg.digraph.find_cycles(cfg.max_cycle)
+    model = create_ip_model(cfg.timelimit, cfg.verbose)
+    model.params.method = 2
+
+    LOGGER.info("Adding cycle variables")
+    cycle_vars = [model.addVar(vtype=GRB.BINARY) for __ in cycles]
+    model.update()
+
+    vtx_to_vars = [[] for __ in cfg.digraph.vs]
+
+    LOGGER.info("Adding chain variables and constraints")
+    add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, model, vtx_to_vars,
+                                   store_edge_positions=cfg.edge_success_prob != 1,
+                                   store_collapse_chains=True)
+
+    # vtx_to_vars has a list for each vertex, that list contains the cycles
+    # incident with said vertex
+    for index, cycle in enumerate(cycles):
+        for vert in cycle:
+            vtx_to_vars[vert.id].append(cycle_vars[index])
+
+    LOGGER.info("Adding vertex constraints")
+    for var_list in vtx_to_vars:
+        if var_list:
+            model.addConstr(quicksum(var_list) <= 1)
+
+    # Note that for 2-cycles and 3-cycles, we store a list of tuples, each
+    # tuple containing (cycle, gurobi_variable_for_cycle).
+    # Find 2-cycles
+    two_cycles = [(cycle, var) for cycle, var in zip(cycles, cycle_vars)
+                  if len(cycle) == 2]
+    # Find 3-cycles with back-arcs
+    three_cycles_with_backarcs = []
+    for cycle, var in zip(cycles, cycle_vars):
+        if len(cycle) != 3:
+            continue
+        backarc = False
+        for index, vert1 in enumerate(cycle):
+            vert2 = cycle[index + 1 % len(cycle)]
+            for edge in vert1.edges:
+                if edge.tgt == vert2:
+                    backarc = True
+                    break
+            if backarc:
+                three_cycles_with_backarcs.append((cycle, var))
+                break
+
+    second_edges = []
+    third_edges = []
+    long_chain_vars = []
+    for vert in cfg.digraph.vs:
+        for edge in vert.edges:
+            for var in edge.grb_vars_out[2]:
+                second_edges.append(var)
+            for var in edge.grb_vars_out[3]:
+                third_edges.append(var)
+        long_chain_vars.append(vert.collapse_var)
+    short_chains = quicksum(second_edges) - quicksum(third_edges)
+    long_chains = quicksum(long_chain_vars)
+
+
+
+    for iteration in range(5):
+        LOGGER.info("Calculating objective in round %d", iteration)
+        # First just maximise 2-cycles, 3-cycles with backarcs, short
+        # chains and collapsible long chains
+        obj = (quicksum([var for (cycle, var) in two_cycles]) +
+               quicksum([var for (cycle, var) in three_cycles_with_backarcs]) +
+               short_chains + long_chains)
+        if iteration == 0:
+            model.setObjective(obj, GRB.MAXIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj1_value = model.getObjective().getValue()
+            LOGGER.info("First round complete, size is %d", obj1_value)
+            continue
+        model.addConstr(obj == obj1_value)
+
+        if cfg.max_chain == 0:
+            if cfg.only_size():
+                obj_expr = quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
+                                    for c, var in zip(cycles, cycle_vars))
+            else:
+                obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                    for c, var in zip(cycles, cycle_vars))
+        elif cfg.edge_success_prob == 1:
+            if cfg.only_size():
+                obj_expr = (quicksum(len(c) * var for c, var in zip(cycles, cycle_vars)) +
+                            quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
+                            quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
+            else:
+                obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var
+                                    for c, var in zip(cycles, cycle_vars)) +
+                            quicksum(e.score * e.edge_var for ndd in cfg.ndds
+                                    for e in ndd.edges) +
+                            quicksum(e.score * var for e in cfg.digraph.es
+                                    for var in e.grb_vars))
+        else:
+            if cfg.only_size():
+                obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var
+                                    for c, var in zip(cycles, cycle_vars)) +
+                            quicksum(cfg.edge_success_prob * e.edge_var
+                                    for ndd in cfg.ndds for e in ndd.edges) +
+                            quicksum(cfg.edge_success_prob**(pos+1) * var
+                                    for e in cfg.digraph.es
+                                    for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+            else:
+                obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                    for c, var in zip(cycles, cycle_vars)) +
+                            quicksum(e.score*cfg.edge_success_prob * e.edge_var
+                                    for ndd in cfg.ndds for e in ndd.edges) +
+                            quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
+                                    for e in cfg.digraph.es
+                                    for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+
+        model.setObjective(obj_expr, GRB.MAXIMIZE)
+
+        optimise(model, cfg)
+
+        if model.status != GRB.OPTIMAL:
+            return None
+
+    return OptSolution(ip_model=model,
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
                        chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
                             cfg.digraph, cfg.ndds, cfg.edge_success_prob),
