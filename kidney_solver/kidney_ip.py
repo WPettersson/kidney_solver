@@ -272,7 +272,8 @@ def optimise_uuef(cfg):
 ###################################################################################################
 
 def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
-                                   store_edge_positions=False):
+                                   store_edge_positions=False,
+                                   store_collapse_chains=False):
     """Add the IP variables and constraints for chains in PICEF and HPIEF'.
 
     Args:
@@ -286,13 +287,27 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
             will be added to edges that have associated Gurobi variables.
             edge.grb_edge_positions[i] will indicate the position of the edge respresented
             by edge.grb_vars[i]. (default: False)
+        store_collapse_chains: If True, create the variables (and corresponding
+            constraints) which will indicate when a vertex is the last vertex in a
+            chain, and the chain can be collapsed by removing the first
+            donor/patient pair. Note that this only works if max_chain == 3.
+            The interesting variable will be attached to each vertex as
+            collapse_var, as a binary variable, and will be 1 if and only if
+            this vertex is the last vertex of a chain selected that can
+            collapse.
     """
 
     if max_chain == 0:
         return
+    if store_collapse_chains and max_chain != 3:
+        raise Exception("store_collapse_chains can only be used if max_chain == 3")
+
     for vert in digraph.vs:
         vert.grb_vars_in = [[] for i in range(max_chain-1)]
         vert.grb_vars_out = [[] for i in range(max_chain-1)]
+        if store_collapse_chains:
+            vert.collapse_var = m.addVar(vtype=GRB.BINARY)
+            vert.collapse_vars = []
 
     for ndd in ndds:
         ndd_edge_vars = []
@@ -324,6 +339,18 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
                 if i < max_chain-2:
                     edge.tgt.grb_vars_in[i+1].append(edge_var)
 
+    if store_collapse_chains:
+        for ndd in ndds:
+            for first_edge in ndd.edges:
+                for second_edge in first_edge.tgt.edges:
+                    for third_edge in second_edge.tgt.edges:
+                        collapse_var = m.addVar(vtype=GRB.BINARY)
+                        third_edge.tgt.collapse_vars.append(collapse_var)
+                        m.addConstr(3*collapse_var <= first_edge.edge_var +
+                                    second_edge.edge_var + third_edge.edge_var)
+        for vert in digraph.vs:
+            if vert.collapse_vars:
+                m.addConstr(quicksum(vert.collapse_vars) >= vert.collapse_var)
     m.update()
 
     # At each chain position, sum of edges into a vertex must be >= sum of edges out
