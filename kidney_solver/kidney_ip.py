@@ -53,6 +53,10 @@ class OptConfig(object):
         if size:
             LOGGER.info("Only optimising for size.")
 
+        def only_size(self):
+            """Do we only care about the size of the matching found?"""
+            return self._only_size
+
 class OptSolution(object):
     """An optimal solution for a kidney-exchange problem instance.
     
@@ -652,7 +656,7 @@ def optimise_ccf(cfg):
             m.addConstr(quicksum(l) <= 1)
 
     LOGGER.info("Calculating objective")
-    if cfg._only_size:
+    if cfg.only_size():
         obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
                             for (c, var) in zip(cycles, cycle_vars)) +
                     quicksum(len(c) * var for (c, var) in zip(chains, chain_vars)))
