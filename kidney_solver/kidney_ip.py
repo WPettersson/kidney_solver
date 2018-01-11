@@ -286,45 +286,46 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
 
     if max_chain == 0:
         return
-    for v in digraph.vs:
-        v.grb_vars_in  = [[] for i in range(max_chain-1)]
-        v.grb_vars_out = [[] for i in range(max_chain-1)]
+    for vert in digraph.vs:
+        vert.grb_vars_in = [[] for i in range(max_chain-1)]
+        vert.grb_vars_out = [[] for i in range(max_chain-1)]
 
     for ndd in ndds:
         ndd_edge_vars = []
-        for e in ndd.edges:
+        for edge in ndd.edges:
             edge_var = m.addVar(vtype=GRB.BINARY)
-            e.edge_var = edge_var
+            edge.edge_var = edge_var
             ndd_edge_vars.append(edge_var)
-            vtx_to_vars[e.target_v.id].append(edge_var)
-            if max_chain>1: e.target_v.grb_vars_in[0].append(edge_var)
+            vtx_to_vars[edge.target_v.id].append(edge_var)
+            if max_chain > 1:
+                edge.target_v.grb_vars_in[0].append(edge_var)
         m.update()
         m.addConstr(quicksum(ndd_edge_vars) <= 1)
 
     dists_from_ndd = kidney_utils.get_dist_from_nearest_ndd(digraph, ndds)
 
     # Add pair->pair edge variables, indexed by position in chain
-    for e in digraph.es:
-        e.grb_vars = []
+    for edge in digraph.es:
+        edge.grb_vars = []
         if store_edge_positions:
-            e.grb_var_positions = []
+            edge.grb_var_positions = []
         for i in range(max_chain-1):
-            if dists_from_ndd[e.src.id] <= i+1:
+            if dists_from_ndd[edge.src.id] <= i+1:
                 edge_var = m.addVar(vtype=GRB.BINARY)
-                e.grb_vars.append(edge_var)
+                edge.grb_vars.append(edge_var)
                 if store_edge_positions:
-                    e.grb_var_positions.append(i+1)
-                vtx_to_vars[e.tgt.id].append(edge_var)
-                e.src.grb_vars_out[i].append(edge_var)
+                    edge.grb_var_positions.append(i+1)
+                vtx_to_vars[edge.tgt.id].append(edge_var)
+                edge.src.grb_vars_out[i].append(edge_var)
                 if i < max_chain-2:
-                    e.tgt.grb_vars_in[i+1].append(edge_var)
+                    edge.tgt.grb_vars_in[i+1].append(edge_var)
 
     m.update()
 
     # At each chain position, sum of edges into a vertex must be >= sum of edges out
     for i in range(max_chain-1):
-        for v in digraph.vs:
-            m.addConstr(quicksum(v.grb_vars_in[i]) >= quicksum(v.grb_vars_out[i]))
+        for vert in digraph.vs:
+            m.addConstr(quicksum(vert.grb_vars_in[i]) >= quicksum(vert.grb_vars_out[i]))
 
 ###################################################################################################
 #                                                                                                 #
