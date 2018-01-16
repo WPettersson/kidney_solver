@@ -53,9 +53,9 @@ class OptConfig(object):
         if size:
             LOGGER.info("Only optimising for size.")
 
-        def only_size(self):
-            """Do we only care about the size of the matching found?"""
-            return self._only_size
+    def only_size(self):
+        """Do we only care about the size of the matching found?"""
+        return self._only_size
 
 class OptSolution(object):
     """An optimal solution for a kidney-exchange problem instance.
@@ -342,8 +342,20 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
     if store_collapse_chains:
         for ndd in ndds:
             for first_edge in ndd.edges:
-                for second_edge in first_edge.tgt.edges:
+                try:
+                    first_edge.edge_var
+                except AttributeError:
+                    continue
+                for second_edge in first_edge.target_v.edges:
+                    try:
+                        second_edge.edge_var
+                    except AttributeError:
+                        continue
                     for third_edge in second_edge.tgt.edges:
+                        try:
+                            third_edge.edge_var
+                        except AttributeError:
+                            continue
                         collapse_var = m.addVar(vtype=GRB.BINARY)
                         third_edge.tgt.collapse_vars.append(collapse_var)
                         m.addConstr(3*collapse_var <= first_edge.edge_var +
@@ -643,7 +655,7 @@ def optimise_picef(cfg):
 
 
 
-def optimise_nhs_picef(cfg):
+def optimise_picef_nhs(cfg):
     """Optimise using the PICEF formulation, but use the NHS objectives.
 
     Args:
@@ -703,18 +715,21 @@ def optimise_nhs_picef(cfg):
 
     second_edges = []
     third_edges = []
-    long_chain_vars = []
+    long_chain_collapse_vars = []
     for vert in cfg.digraph.vs:
         for edge in vert.edges:
+            try:
+                edge.grb_vars_out
+            except AttributeError:
+                continue
             for var in edge.grb_vars_out[2]:
                 second_edges.append(var)
             for var in edge.grb_vars_out[3]:
                 third_edges.append(var)
-        long_chain_vars.append(vert.collapse_var)
+        long_chain_collapse_vars.append(vert.collapse_var)
     short_chains = quicksum(second_edges) - quicksum(third_edges)
-    long_chains = quicksum(long_chain_vars)
-
-
+    long_collapse_chains = quicksum(long_chain_collapse_vars)
+    long_chains = quicksum(third_edges)
 
     for iteration in range(5):
         LOGGER.info("Calculating objective in round %d", iteration)
@@ -722,60 +737,102 @@ def optimise_nhs_picef(cfg):
         # chains and collapsible long chains
         obj = (quicksum([var for (cycle, var) in two_cycles]) +
                quicksum([var for (cycle, var) in three_cycles_with_backarcs]) +
-               short_chains + long_chains)
+               short_chains + long_collapse_chains)
         if iteration == 0:
             model.setObjective(obj, GRB.MAXIMIZE)
             optimise(model, cfg)
             if model.status != GRB.OPTIMAL:
                 return None
             obj1_value = model.getObjective().getValue()
-            LOGGER.info("First round complete, size is %d", obj1_value)
+            LOGGER.info("First round complete, objevtive is %d", obj1_value)
             continue
+        # Add constraint keeping the first objective at its optimal value
         model.addConstr(obj == obj1_value)
 
+        # Next maximise number of transplants
         if cfg.max_chain == 0:
-            if cfg.only_size():
-                obj_expr = quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
-                                    for c, var in zip(cycles, cycle_vars))
-            else:
-                obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
-                                    for c, var in zip(cycles, cycle_vars))
+            obj = quicksum(len(c) * cfg.edge_success_prob ** len(c) * var for
+                           c, var in zip(cycles, cycle_vars))
         elif cfg.edge_success_prob == 1:
-            if cfg.only_size():
-                obj_expr = (quicksum(len(c) * var for c, var in zip(cycles, cycle_vars)) +
-                            quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
-                            quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
-            else:
-                obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var
-                                    for c, var in zip(cycles, cycle_vars)) +
-                            quicksum(e.score * e.edge_var for ndd in cfg.ndds
-                                    for e in ndd.edges) +
-                            quicksum(e.score * var for e in cfg.digraph.es
-                                    for var in e.grb_vars))
+            obj = (quicksum(len(c) * var
+                            for c, var in zip(cycles, cycle_vars)) +
+                   quicksum(e.edge_var for ndd in cfg.ndds
+                            for e in ndd.edges) +
+                   quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
         else:
-            if cfg.only_size():
-                obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var
-                                    for c, var in zip(cycles, cycle_vars)) +
-                            quicksum(cfg.edge_success_prob * e.edge_var
-                                    for ndd in cfg.ndds for e in ndd.edges) +
-                            quicksum(cfg.edge_success_prob**(pos+1) * var
-                                    for e in cfg.digraph.es
-                                    for var, pos in zip(e.grb_vars, e.grb_var_positions)))
-            else:
-                obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
-                                    for c, var in zip(cycles, cycle_vars)) +
-                            quicksum(e.score*cfg.edge_success_prob * e.edge_var
-                                    for ndd in cfg.ndds for e in ndd.edges) +
-                            quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
-                                    for e in cfg.digraph.es
-                                    for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+            obj = (quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var for
+                            c, var in zip(cycles, cycle_vars)) +
+                   quicksum(cfg.edge_success_prob * e.edge_var for ndd in
+                            cfg.ndds for e in ndd.edges) +
+                   quicksum(cfg.edge_success_prob**(pos+1) * var for e in
+                            cfg.digraph.es for var, pos in zip(e.grb_vars,
+                                                               e.grb_var_positions)))
+        if iteration == 1:
+            model.setObjective(obj, GRB.MAXIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj2_value = model.getObjective().getValue()
+            LOGGER.info("Second round complete, size is %d", obj2_value)
+            continue
+        # Add constraint on second objective
+        model.addConstr(obj == obj2_value)
+
+        # Third objective, minimize three-ways + long chains
+        obj = long_chains + quicksum(var for c, var in zip(cycles, cycle_vars)
+                                     if len(c) == 3)
+        if iteration == 2:
+            model.setObjective(obj, GRB.MINIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj3_value = model.getObjective().getValue()
+            LOGGER.info("Third round complete, size is %d", obj3_value)
+            continue
+
+        model.addConstr(obj == obj3_value)
+
+        # Fourth objective, maximise three-ways with back-arcs and collapsible
+        # long chains
+        obj = (quicksum([var for (cycle, var) in three_cycles_with_backarcs]) +
+               long_collapse_chains)
+        if iteration == 3:
+            model.setObjective(obj, GRB.MAXIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj4_value = model.getObjective().getValue()
+            LOGGER.info("Fourth round complete, size is %d", obj4_value)
+            continue
+        model.addConstr(obj == obj4_value)
+        # This must now be the last iteration
+        if cfg.max_chain == 0:
+            obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph,
+                                                          cfg.edge_success_prob)
+                                * var for c, var in zip(cycles, cycle_vars))
+        elif cfg.edge_success_prob == 1:
+            obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var
+                                 for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score * e.edge_var for ndd in cfg.ndds
+                                 for e in ndd.edges) +
+                        quicksum(e.score * var for e in cfg.digraph.es
+                                 for var in e.grb_vars))
+        else:
+            obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                 for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score*cfg.edge_success_prob * e.edge_var
+                                 for ndd in cfg.ndds for e in ndd.edges) +
+                        quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
+                                 for e in cfg.digraph.es
+                                 for var, pos in zip(e.grb_vars, e.grb_var_positions)))
 
         model.setObjective(obj_expr, GRB.MAXIMIZE)
-
         optimise(model, cfg)
 
         if model.status != GRB.OPTIMAL:
             return None
+        obj5_value = model.getObjective().getValue()
+        LOGGER.info("Fifth round complete, size is %d", obj5_value)
 
     return OptSolution(ip_model=model,
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
