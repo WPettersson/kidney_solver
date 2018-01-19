@@ -3,6 +3,7 @@
 import copy
 import logging
 import sys
+from xml.etree import ElementTree as ET
 
 from kidney_solver.kidney_digraph import *
 from kidney_solver.kidney_ndds import *
@@ -69,11 +70,12 @@ class OptSolution(object):
         total_score: The total score of the solution
     """
 
-    def __init__(self, ip_model, cycles, chains, digraph, edge_success_prob=1):
+    def __init__(self, ip_model, cycles, chains, digraph, ndds, edge_success_prob=1):
         self.ip_model = ip_model
         self.cycles = cycles
         self.chains = chains
         self.digraph = digraph
+        self._ndds = ndds
         self.total_score = (sum(c.score for c in chains) +
                 sum(failure_aware_cycle_score(c, digraph, edge_success_prob) for c in cycles))
         self.edge_success_prob = edge_success_prob
@@ -104,9 +106,121 @@ class OptSolution(object):
         for c in self.chains:
             string += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
             string += "\n"
-            total += len(c)
+            total += len(c+1)
         string += "total number of transplants: %d" % total
         return string
+
+    def as_xml(self, filename):
+        """Write an XML representation of this solution to a file.
+
+        :param filename: The file to write to.
+        """
+        root = ET.Element("data")
+        algo = ET.SubElement(root, "algorithm")
+        algo.text = "kidney_solver"
+        output = ET.SubElement(root, "output")
+        all_cycles = ET.SubElement(output, "all_cycles")
+        cycle_index, cycle_weight = self._xml_add_cycles(all_cycles)
+        chain_index, chain_weight = self._xml_add_chains(all_cycles, cycle_index)
+        exchange_data = ET.SubElement(output, "exchange_data")
+        entry = ET.SubElement(exchange_data, "entry")
+        entry.set("weight", "%f" % (cycle_weight + chain_weight))
+        two_ways = len([x for x in self.cycles if len(x) == 2])
+        three_ways = len([x for x in self.cycles if len(x) == 3])
+        entry.set("two_way_exchanges", "%d" % two_ways)
+        entry.set("three_way_exchanges", "%d" % three_ways)
+        num_transplants = sum([len(x) for x in self.chains])
+        num_transplants += 2 * two_ways + 3 * three_ways
+        entry.set("total_transplants", "%d" % num_transplants)
+        ET.SubElement(entry, "description").text = "kidney_solver using __"
+        exchanges = ET.SubElement(entry, "exchanges")
+        for count in range(1, chain_index):
+            ET.SubElement(exchanges, "cycle").text = "%d" % count
+        tree = ET.ElementTree(element=root)
+        tree.write(filename)
+
+
+    def _xml_add_cycles(self, cycles):
+        """Private function to add cycles to an XML element.
+        """
+        cycle_index = 1
+        total_weight = 0
+        for cycle in self.cycles:
+            cycle_weight = 0
+            backarcs = 0
+            cycle_elt = ET.SubElement(cycles, "cycle")
+            for patient_index, donor in enumerate(cycle):
+                weight = 1
+                next_patient = cycle[(patient_index + 1) % len(cycle)]
+                found = False
+                for edge in donor.edges:
+                    if edge.tgt == next_patient:
+                        weight = edge.score
+                        found = True
+                        break
+                    if found:
+                        break
+                cycle_weight += weight
+                for edge in next_patient.edges:
+                    if edge.tgt == donor:
+                        backarcs += 1
+                pair = ET.SubElement(cycle_elt, "pair")
+                # The pair is the donor/patient pair who joined the exchange
+                # together, not the donor + the patient to whom they are
+                # donating
+                ET.SubElement(pair, "p").text = "%s" % donor.patient_id()
+                ET.SubElement(pair, "d").text = "%s" % donor.donor_id()
+            total_weight += cycle_weight
+            cycle_elt.set("id", "%d" % cycle_index)
+            cycle_elt.set("backarcs", "%d" % backarcs)
+            cycle_elt.set("weight", "%f" % cycle_weight)
+            cycle_index += 1
+        return cycle_index, total_weight
+
+    def _xml_add_chains(self, cycles, cycle_index):
+        """Private function to add chains to an XML element.
+        """
+        total_weight = 0
+        for chain in self.chains:
+            chain_weight = 0
+            cycle_elt = ET.SubElement(cycles, "cycle")
+            donor = self._ndds[chain.ndd_index]
+            first = True
+            for patient_index in chain.vertices():
+                weight = 1
+                patient = self.digraph.vs[patient_index]
+                found = False
+                for edge in donor.edges:
+                    if edge.target() == patient:
+                        weight = edge.score
+                        found = True
+                        break
+                    if found:
+                        break
+                chain_weight += weight
+                pair = ET.SubElement(cycle_elt, "pair")
+                if first:
+                    ET.SubElement(pair, "a").text = "true"
+                    first = False
+                else:
+                    patient_elt = ET.SubElement(pair, "p")
+                    patient_elt.text = "%s" % donor.patient_id()
+                donor_elt = ET.SubElement(pair, "d")
+                donor_elt.text = "%s" % donor.donor_id()
+                donor = self.digraph.vs[patient_index]
+            # donor now points to the last donor/patient in the chain.
+            pair = ET.SubElement(cycle_elt, "pair")
+            patient_elt = ET.SubElement(pair, "p")
+            patient_elt.text = "%s" % donor.patient_id()
+            donor_elt = ET.SubElement(pair, "d")
+            donor_elt.text = "%s" % donor.donor_id()
+
+            total_weight += chain_weight
+            cycle_elt.set("id", "%d" % cycle_index)
+            cycle_elt.set("weight", "%f" % chain_weight)
+            cycle_elt.set("altruistic", "true")
+            cycle_index += 1
+        return cycle_index, total_weight
 
     def relabelled_copy(self, old_to_new_vertices, new_digraph):
         """Create a copy of the solution with vertices relabelled.

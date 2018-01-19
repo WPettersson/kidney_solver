@@ -79,6 +79,11 @@ def start():
     parser.add_argument("--output", "-o", required=False,
                         metavar='FILE',
                         help="Write solution to FILE")
+    parser.add_argument("--std-output", required=False,
+                        action='store_true',
+                        help="Write solution to stdout")
+    parser.add_argument("--xml", required=False, metavar='FILE',
+                        help="Write solution as XML to FILE")
     parser.add_argument("--debug", "-d", required=False, action="store_true",
                         help="Enable debugging output")
 
@@ -94,6 +99,8 @@ def start():
     input_lines = [line for line in sys.stdin if len(line.strip()) > 0]
     if input_lines[0].strip() == "{":  # JSON input
         digraph, altruists = readers.read_digraph_json(input_lines)
+    elif "xml" in input_lines[0] or "<data>" in input_lines[0]:
+        digraph, altruists = readers.read_digraph_xml(input_lines)
     else:
         n_digraph_edges = int(input_lines[0].split()[1])
         digraph_lines = input_lines[:n_digraph_edges + 2]
@@ -113,27 +120,30 @@ def start():
                               args.lp_file, args.relax, args.size)
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
     time_taken = time.time() - start_time
-    print("formulation: {}".format(args.formulation))
-    if opt_solution:
-        print("formulation_name: {}".format(opt_solution.formulation_name))
-    print("using_relabelled: {}".format(args.use_relabelled))
-    print("cycle_cap: {}".format(args.cycle_cap))
-    print("chain_cap: {}".format(args.chain_cap))
-    print("edge_success_prob: {}".format(args.edge_success_prob))
-    if opt_solution:
-        print("ip_time_limit: {}".format(args.timelimit))
-        print("ip_vars: {}".format(opt_solution.ip_model.numVars))
-        print("ip_constrs: {}".format(opt_solution.ip_model.numConstrs))
-    print("total_time: {}".format(time_taken))
-    if opt_solution:
-        print("ip_solve_time: {}".format(opt_solution.ip_model.runtime))
-        print("solver_status: {}".format(opt_solution.ip_model.status))
-        print("total_score: {}".format(opt_solution.total_score))
+    if args.std_output:
+        print("formulation: {}".format(args.formulation))
+        if opt_solution:
+            print("formulation_name: {}".format(opt_solution.formulation_name))
+        print("using_relabelled: {}".format(args.use_relabelled))
+        print("cycle_cap: {}".format(args.cycle_cap))
+        print("chain_cap: {}".format(args.chain_cap))
+        print("edge_success_prob: {}".format(args.edge_success_prob))
+        if opt_solution:
+            print("ip_time_limit: {}".format(args.timelimit))
+            print("ip_vars: {}".format(opt_solution.ip_model.numVars))
+            print("ip_constrs: {}".format(opt_solution.ip_model.numConstrs))
+        print("total_time: {}".format(time_taken))
+        if opt_solution:
+            print("ip_solve_time: {}".format(opt_solution.ip_model.runtime))
+            print("solver_status: {}".format(opt_solution.ip_model.status))
+            print("total_score: {}".format(opt_solution.total_score))
+    if args.xml and opt_solution:
+        opt_solution.as_xml(args.xml)
     if opt_solution:
         if args.output:
             with open(args.output, 'w') as outfile:
                 outfile.write(str(opt_solution))
-        else:
+        elif args.std_output:
             opt_solution.display()
 
 if __name__ == "__main__":

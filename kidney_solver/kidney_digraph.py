@@ -34,6 +34,28 @@ class Vertex:
     def __init__(self, id):
         self.id = id
         self.edges = []
+        self._donor_id = id
+        self._patient_id = id
+
+    def set_patient_id(self, patient_id):
+        """Set the patient ID of this vertex."""
+        self._patient_id = patient_id
+
+    def patient_id(self):
+        """Get the patient ID of the patient-patient-pair represented by this
+        vertex.
+        """
+        return self._patient_id
+
+    def set_donor_id(self, donor_id):
+        """Set the donor ID of this vertex."""
+        self._donor_id = donor_id
+
+    def donor_id(self):
+        """Get the donor ID of the donor-patient-pair represented by this
+        vertex.
+        """
+        return self._donor_id
 
     def __str__(self):
         return ("V{}".format(self.id))
@@ -50,6 +72,10 @@ class Edge:
 
     def __str__(self):
         return ("V" + str(self.src.id) + "-V" + str(self.tgt.id))
+
+    def target(self):
+        """The target of this edge."""
+        return self.tgt
 
 class Digraph:
     """A directed graph, in which each edge has a numeric score.

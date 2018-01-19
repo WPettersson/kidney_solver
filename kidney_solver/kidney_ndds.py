@@ -7,14 +7,26 @@ each of these edges points towards a vertex (which represents a donor-patient pa
 in the directed graph.
 """
 
-class Ndd:
+class Ndd(object):
     """A non-directed donor"""
     def __init__(self):
         self.edges = []
+        self._donor_id = None
+
     def add_edge(self, target, score, explanation):
         """Add an edge representing compatibility with a patient who appears as a
         vertex in the directed graph."""
         self.edges.append(NddEdge(target, score, explanation))
+
+    def set_donor_id(self, donor_id):
+        """Set the donor ID of this vertex."""
+        self._donor_id = donor_id
+
+    def donor_id(self):
+        """Get the donor ID of the donor-patient-pair represented by this
+        vertex.
+        """
+        return self._donor_id
 
 class NddEdge:
     """An edge pointing from an NDD to a vertex in the directed graph"""
@@ -25,6 +37,10 @@ class NddEdge:
 
     def explanation(self):
         return self._expln
+
+    def target(self):
+        """The target of this edge."""
+        return self.target_v
 
 def create_relabelled_ndds(ndds, old_to_new_vtx):
     """Creates a copy of a n array of NDDs, with target vertices changed.
@@ -80,6 +96,10 @@ class Chain(object):
                 elif i > j:
                     return 1
         return 0
+
+    def vertices(self):
+        """The list of vertices in this chain"""
+        return self.vtx_indices
 
     def __len__(self):
         return len(self.vtx_indices)
