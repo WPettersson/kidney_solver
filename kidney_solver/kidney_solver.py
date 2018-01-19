@@ -25,6 +25,7 @@ def solve_kep(cfg, formulation, use_relabelled=True):
         "hpief_2prime_full_red": ("HPIEF'' with full reduction by cycle generation", kidney_ip.optimise_hpief_2prime_full_red),
         "picef": ("PICEF", kidney_ip.optimise_picef),
         "nhs": ("PICEF-NHS", kidney_ip.optimise_picef_nhs),
+        "nhs_chains": ("PICEF-NHS-CHAINS", kidney_ip.optimise_picef_nhs_chains),
         "cf":   ("Cycle formulation",
                  kidney_ip.optimise_ccf)
     }
@@ -50,7 +51,7 @@ def start():
     parser.add_argument("chain_cap", type=int,
             help="The maximum permitted number of edges in a chain")
     parser.add_argument("formulation",
-            help="The IP formulation (uef, eef, eef_full_red, hpief_prime, hpief_2prime, hpief_prime_full_red, hpief_2prime_full_red, picef, cf, nhs)")
+            help="The IP formulation (uef, eef, eef_full_red, hpief_prime, hpief_2prime, hpief_prime_full_red, hpief_2prime_full_red, picef, cf, nhs, nhs_chains)")
     parser.add_argument("--use-relabelled", "-r", required=False,
             action="store_true",
             help="Relabel vertices in descending order of in-deg + out-deg")

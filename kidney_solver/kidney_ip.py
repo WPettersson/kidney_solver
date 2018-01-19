@@ -764,13 +764,179 @@ def optimise_picef(cfg):
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
                        chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
                             cfg.digraph, cfg.ndds, cfg.edge_success_prob),
-                       digraph=cfg.digraph,
+                       digraph=cfg.digraph, ndds=cfg.ndds,
                        edge_success_prob=cfg.edge_success_prob)
-
-
 
 def optimise_picef_nhs(cfg):
     """Optimise using the PICEF formulation, but use the NHS objectives.
+
+    Args:
+        cfg: an OptConfig object
+
+    Returns:
+        an OptSolution object
+    """
+    LOGGER.info("Using PICEF formulation with NHS objectives")
+    LOGGER.info("Finding cycles")
+    cycles = cfg.digraph.find_cycles(cfg.max_cycle)
+    model = create_ip_model(cfg.timelimit, cfg.verbose)
+    model.params.method = 2
+
+    LOGGER.info("Adding cycle variables")
+    cycle_vars = [model.addVar(vtype=GRB.BINARY) for __ in cycles]
+    model.update()
+
+    vtx_to_vars = [[] for __ in cfg.digraph.vs]
+
+    LOGGER.info("Adding chain variables and constraints")
+    add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, model, vtx_to_vars,
+                                   store_edge_positions=cfg.edge_success_prob != 1,
+                                   store_collapse_chains=False)
+
+    # vtx_to_vars has a list for each vertex, that list contains the cycles
+    # incident with said vertex
+    for index, cycle in enumerate(cycles):
+        for vert in cycle:
+            vtx_to_vars[vert.id].append(cycle_vars[index])
+
+    LOGGER.info("Adding vertex constraints")
+    for var_list in vtx_to_vars:
+        if var_list:
+            model.addConstr(quicksum(var_list) <= 1)
+
+    # Note that for 2-cycles and 3-cycles, we store a list of tuples, each
+    # tuple containing (cycle, gurobi_variable_for_cycle).
+    # Find 2-cycles
+    two_cycles = [(cycle, var) for cycle, var in zip(cycles, cycle_vars)
+                  if len(cycle) == 2]
+    # Find 3-cycles with back-arcs
+    three_cycles_with_backarcs = []
+    for cycle, var in zip(cycles, cycle_vars):
+        if len(cycle) != 3:
+            continue
+        backarc = False
+        for index, vert1 in enumerate(cycle):
+            vert2 = cycle[index - 1 % len(cycle)]
+            for edge in vert1.edges:
+                if edge.tgt == vert2:
+                    backarc = True
+                    break
+            if backarc:
+                three_cycles_with_backarcs.append((cycle, var))
+                break
+
+    first_edges = []
+    second_edges = []
+    for ndd in cfg.ndds:
+        for edge in ndd.edges:
+            first_edges.append(edge.edge_var)
+    for vert in cfg.digraph.vs:
+        if cfg.max_chain > 1:
+            for var in vert.grb_vars_out[0]:
+                second_edges.append(var)
+    short_chains = quicksum(first_edges) - quicksum(second_edges)
+    long_chains = quicksum(second_edges)
+
+    for iteration in range(5):
+        LOGGER.info("Calculating objective in round %d", (iteration+1))
+        # First just maximise 2-cycles, 3-cycles with backarcs, short
+        # chains and collapsible long chains
+        obj = (quicksum([var for (cycle, var) in two_cycles]) +
+               quicksum([var for (cycle, var) in three_cycles_with_backarcs]) + short_chains + long_chains)
+        if iteration == 0:
+            model.setObjective(obj, GRB.MAXIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj1_value = model.getObjective().getValue()
+            LOGGER.info("First round complete, objective is %d", obj1_value)
+            continue
+        # Add constraint keeping the first objective at its optimal value
+        model.addConstr(obj >= obj1_value)
+
+        # Next maximise number of transplants
+        obj = (quicksum(len(c) * var
+                        for c, var in zip(cycles, cycle_vars)) +
+                quicksum(e.edge_var for ndd in cfg.ndds
+                        for e in ndd.edges) +
+                quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
+        if iteration == 1:
+            model.setObjective(obj, GRB.MAXIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj2_value = model.getObjective().getValue()
+            LOGGER.info("Second round complete, size is %d", obj2_value)
+            continue
+        # Add constraint on second objective
+        model.addConstr(obj >= obj2_value)
+
+        # Third objective, minimize three-ways
+        obj = quicksum(var for c, var in zip(cycles, cycle_vars) if len(c) == 3)
+        if iteration == 2:
+            model.setObjective(obj, GRB.MINIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj3_value = model.getObjective().getValue()
+            LOGGER.info("Third round complete, size is %d", obj3_value)
+            continue
+
+        model.addConstr(obj <= obj3_value)
+
+        # Fourth objective, maximise three-ways with back-arcs and collapsible
+        # long chains
+        obj = (quicksum([var for (cycle, var) in three_cycles_with_backarcs]) +
+               quicksum([var for (cycle, var) in two_cycles]))
+        if iteration == 3:
+            model.setObjective(obj, GRB.MAXIMIZE)
+            optimise(model, cfg)
+            if model.status != GRB.OPTIMAL:
+                return None
+            obj4_value = model.getObjective().getValue()
+            LOGGER.info("Fourth round complete, size is %d", obj4_value)
+            continue
+        model.addConstr(obj >= obj4_value)
+        # This must now be the last iteration
+        if cfg.max_chain == 0:
+            obj_expr = quicksum(failure_aware_cycle_score(c, cfg.digraph,
+                                                          cfg.edge_success_prob)
+                                * var for c, var in zip(cycles, cycle_vars))
+        elif cfg.edge_success_prob == 1:
+            obj_expr = (quicksum(cycle_score(c, cfg.digraph) * var
+                                 for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score * e.edge_var for ndd in cfg.ndds
+                                 for e in ndd.edges) +
+                        quicksum(e.score * var for e in cfg.digraph.es
+                                 for var in e.grb_vars))
+        else:
+            obj_expr = (quicksum(failure_aware_cycle_score(c, cfg.digraph, cfg.edge_success_prob) * var
+                                 for c, var in zip(cycles, cycle_vars)) +
+                        quicksum(e.score*cfg.edge_success_prob * e.edge_var
+                                 for ndd in cfg.ndds for e in ndd.edges) +
+                        quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
+                                 for e in cfg.digraph.es
+                                 for var, pos in zip(e.grb_vars, e.grb_var_positions)))
+
+        model.setObjective(obj_expr, GRB.MAXIMIZE)
+        optimise(model, cfg)
+
+        if model.status != GRB.OPTIMAL:
+            return None
+        obj5_value = model.getObjective().getValue()
+        LOGGER.info("Fifth round complete, size is %d", obj5_value)
+
+    return OptSolution(ip_model=model,
+                       cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
+                       chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
+                            cfg.digraph, cfg.ndds, cfg.edge_success_prob),
+                       digraph=cfg.digraph, ndds=cfg.ndds,
+                       edge_success_prob=cfg.edge_success_prob)
+
+
+def optimise_picef_nhs_chains(cfg):
+    """Optimise using the PICEF formulation, but use the NHS objectives.
+    Uses alternative definition of fail-able chain.
 
     Args:
         cfg: an OptConfig object
@@ -818,7 +984,7 @@ def optimise_picef_nhs(cfg):
             continue
         backarc = False
         for index, vert1 in enumerate(cycle):
-            vert2 = cycle[index + 1 % len(cycle)]
+            vert2 = cycle[index - 1 % len(cycle)]
             for edge in vert1.edges:
                 if edge.tgt == vert2:
                     backarc = True
@@ -826,7 +992,6 @@ def optimise_picef_nhs(cfg):
             if backarc:
                 three_cycles_with_backarcs.append((cycle, var))
                 break
-
     second_edges = []
     third_edges = []
     long_chain_collapse_vars = []
@@ -858,7 +1023,7 @@ def optimise_picef_nhs(cfg):
             if model.status != GRB.OPTIMAL:
                 return None
             obj1_value = model.getObjective().getValue()
-            LOGGER.info("First round complete, objevtive is %d", obj1_value)
+            LOGGER.info("First round complete, objective is %d", obj1_value)
             continue
         # Add constraint keeping the first objective at its optimal value
         model.addConstr(obj == obj1_value)
@@ -952,7 +1117,7 @@ def optimise_picef_nhs(cfg):
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
                        chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
                             cfg.digraph, cfg.ndds, cfg.edge_success_prob),
-                       digraph=cfg.digraph,
+                       digraph=cfg.digraph, ndds=cfg.ndds,
                        edge_success_prob=cfg.edge_success_prob)
 
 ###################################################################################################
@@ -1017,7 +1182,7 @@ def optimise_ccf(cfg):
     return OptSolution(ip_model=m,
                        cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
                        chains=[c for c, v in zip(chains, chain_vars) if v.x > 0.5],
-                       digraph=cfg.digraph,
+                       digraph=cfg.digraph, ndds=cfg.ndds,
                        edge_success_prob=cfg.edge_success_prob)
 
 ###################################################################################################
