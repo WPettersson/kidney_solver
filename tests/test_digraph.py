@@ -13,10 +13,10 @@ def read(filename):
 
 def test_cycle_score():
     d = Digraph(4)
-    d.add_edge(1.5, d.vs[0], d.vs[1])
-    d.add_edge(1, d.vs[1], d.vs[2])
-    d.add_edge(1, d.vs[2], d.vs[3])
-    d.add_edge(1, d.vs[3], d.vs[0])
+    d.add_edge(1.5, d.vs[0], d.vs[1], "testing")
+    d.add_edge(1, d.vs[1], d.vs[2], "testing")
+    d.add_edge(1, d.vs[2], d.vs[3], "testing")
+    d.add_edge(1, d.vs[3], d.vs[0], "testing")
     c = [d.vs[i] for i in range(4)]
     assert cycle_score(c, d) == 4.5
 

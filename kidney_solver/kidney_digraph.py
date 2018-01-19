@@ -77,6 +77,10 @@ class Edge:
         """The target of this edge."""
         return self.tgt
 
+    def explanation(self):
+        """Why this edge exists."""
+        return self._expln
+
 class Digraph:
     """A directed graph, in which each edge has a numeric score.
 
@@ -93,7 +97,7 @@ class Digraph:
         self.adj_mat = [[None for x in range(n)] for x in range(n)]
         self.es = []
 
-    def add_edge(self, score, source, tgt, explanation=""):
+    def add_edge(self, score, source, tgt, explanation):
         """Add an edge to the digraph
 
         Args:
@@ -237,7 +241,7 @@ class Digraph:
                 if e is not None:
                     new_src = subgraph.vs[i]
                     new_tgt = subgraph.vs[j]
-                    subgraph.add_edge(e.score, new_src, new_tgt)
+                    subgraph.add_edge(e.score, new_src, new_tgt, e.explanation())
         return subgraph
 
     def __str__(self):

@@ -51,7 +51,7 @@ def create_relabelled_ndds(ndds, old_to_new_vtx):
     new_ndds = [Ndd() for ndd in ndds]
     for i, ndd in enumerate(ndds):
         for edge in ndd.edges:
-            new_ndds[i].add_edge(old_to_new_vtx[edge.target_v.id], edge.score, edge.explanation())
+            new_ndds[i].add_edge(old_to_new_vtx[edge.target().id], edge.score, edge.explanation())
 
     return new_ndds
 

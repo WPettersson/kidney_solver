@@ -5,8 +5,8 @@ import logging
 import sys
 from xml.etree import ElementTree as ET
 
-from kidney_solver.kidney_digraph import *
-from kidney_solver.kidney_ndds import *
+from kidney_solver.kidney_digraph import failure_aware_cycle_score, cycle_score
+from kidney_solver.kidney_ndds import create_relabelled_ndds, Chain, find_chains
 from kidney_solver import kidney_utils
 
 from gurobipy import quicksum, Model, GRB
@@ -37,7 +37,7 @@ class OptConfig(object):
         only_size: True if we only maximise size of matching, not weights
     """
 
-    def __init__(self, digraph, ndds, max_cycle, max_chain, verbose=False,
+    def __init__(self, digraph, ndds=None, max_cycle=3, max_chain=0, verbose=False,
                  timelimit=None, edge_success_prob=1, eef_alt_constraints=False,
                  lp_file=None, relax=False, size=False):
         self.digraph = digraph
@@ -70,7 +70,7 @@ class OptSolution(object):
         total_score: The total score of the solution
     """
 
-    def __init__(self, ip_model, cycles, chains, digraph, ndds, edge_success_prob=1):
+    def __init__(self, ip_model, cycles, chains, digraph, ndds=None, edge_success_prob=1):
         self.ip_model = ip_model
         self.cycles = cycles
         self.chains = chains
@@ -91,22 +91,21 @@ class OptSolution(object):
         string += "cycle_count: {}\n".format(len(self.cycles))
         string += "chain_count: {}\n".format(len(self.chains))
         string += "cycles:\n"
-        # cs is a list of cycles, with each cycle represented as a list of vertex IDs
-        cs = [[v.id for v in c] for c in self.cycles]
-        # Put the lowest-indexed vertex at the start of each cycle
-        for i in range(len(cs)):
-            min_index_pos = cs[i].index(min(cs[i]))
-            cs[i] = cs[i][min_index_pos:] + cs[i][:min_index_pos]
-        # Sort the cycles
-        cs.sort()
-        for c in cs:
-            string += "\t".join(str(v_id) for v_id in c) + "\n"
-            total += len(c)
+        for cycle in self.cycles:
+            # cs is a list of cycles, with each cycle represented as a list of vertex IDs
+            cycle_verts = [v.id for v in cycle]
+            min_index_pos = cycle_verts.index(min(cycle_verts))
+            cycle_verts = cycle_verts[min_index_pos:] + cycle_verts[:min_index_pos]
+            # Sort the cycles
+            cycle_verts.sort()
+            score = failure_aware_cycle_score(cycle, self.digraph, self.edge_success_prob)
+            string += "\t".join(str(v_id) for v_id in cycle_verts) + "\t%f" % score + "\n"
+            total += len(cycle)
         string += "chains:\n"
-        for c in self.chains:
-            string += str(c.ndd_index) + "\t" + "\t".join(str(v) for v in c.vtx_indices)
+        for chain in self.chains:
+            string += str(chain.ndd_index) + "\t" + "\t".join(str(v) for v in chain.vtx_indices)
             string += "\n"
-            total += len(c+1)
+            total += len(chain)+1
         string += "total number of transplants: %d" % total
         return string
 
@@ -116,12 +115,11 @@ class OptSolution(object):
         :param filename: The file to write to.
         """
         root = ET.Element("data")
-        algo = ET.SubElement(root, "algorithm")
-        algo.text = "kidney_solver"
+        ET.SubElement(root, "algorithm").text = "kidney_solver"
         output = ET.SubElement(root, "output")
         all_cycles = ET.SubElement(output, "all_cycles")
-        cycle_index, cycle_weight = self._xml_add_cycles(all_cycles)
-        chain_index, chain_weight = self._xml_add_chains(all_cycles, cycle_index)
+        index, cycle_weight = self._xml_add_cycles(all_cycles)
+        index, chain_weight = self._xml_add_chains(all_cycles, index)
         exchange_data = ET.SubElement(output, "exchange_data")
         entry = ET.SubElement(exchange_data, "entry")
         entry.set("weight", "%f" % (cycle_weight + chain_weight))
@@ -134,10 +132,9 @@ class OptSolution(object):
         entry.set("total_transplants", "%d" % num_transplants)
         ET.SubElement(entry, "description").text = "kidney_solver using __"
         exchanges = ET.SubElement(entry, "exchanges")
-        for count in range(1, chain_index):
+        for count in range(1, index):
             ET.SubElement(exchanges, "cycle").text = "%d" % count
-        tree = ET.ElementTree(element=root)
-        tree.write(filename)
+        ET.ElementTree(element=root).write(filename)
 
 
     def _xml_add_cycles(self, cycles):
@@ -181,6 +178,8 @@ class OptSolution(object):
         """Private function to add chains to an XML element.
         """
         total_weight = 0
+        if not self._ndds:
+            return cycle_index, total_weight
         for chain in self.chains:
             chain_weight = 0
             cycle_elt = ET.SubElement(cycles, "cycle")
@@ -203,17 +202,13 @@ class OptSolution(object):
                     ET.SubElement(pair, "a").text = "true"
                     first = False
                 else:
-                    patient_elt = ET.SubElement(pair, "p")
-                    patient_elt.text = "%s" % donor.patient_id()
-                donor_elt = ET.SubElement(pair, "d")
-                donor_elt.text = "%s" % donor.donor_id()
+                    ET.SubElement(pair, "p").text = "%s" % donor.patient_id()
+                ET.SubElement(pair, "d").text = "%s" % donor.donor_id()
                 donor = self.digraph.vs[patient_index]
             # donor now points to the last donor/patient in the chain.
             pair = ET.SubElement(cycle_elt, "pair")
-            patient_elt = ET.SubElement(pair, "p")
-            patient_elt.text = "%s" % donor.patient_id()
-            donor_elt = ET.SubElement(pair, "d")
-            donor_elt.text = "%s" % donor.donor_id()
+            ET.SubElement(pair, "p").text = "%s" % donor.patient_id()
+            ET.SubElement(pair, "d").text = "%s" % donor.donor_id()
 
             total_weight += chain_weight
             cycle_elt.set("id", "%d" % cycle_index)
@@ -240,15 +235,16 @@ class OptSolution(object):
                            new_digraph, edge_success_prob=self.edge_success_prob)
 
 def optimise(model, cfg):
+    """Optimise a model."""
     if cfg.lp_file:
         model.update()
         model.write(cfg.lp_file)
     elif cfg.relax:
         model.update()
-        r = model.relax()
-        r.optimize()
-        print("lp_relax_obj_val:", r.obj_val)
-        print("lp_relax_solver_status:", r.status)
+        relaxed = model.relax()
+        relaxed.optimize()
+        print("lp_relax_obj_val:", relaxed.obj_val)
+        print("lp_relax_solver_status:", relaxed.status)
         sys.exit(0)
     else:
         LOGGER.debug("Starting optimiser")
@@ -260,21 +256,20 @@ def optimise_relabelled(formulation_fun, cfg):
         order of (indegree + outdegree)"""
 
     in_degs = [0] * cfg.digraph.n
-    for e in cfg.digraph.es:
-        in_degs[e.tgt.id] += 1
+    for edge in cfg.digraph.es:
+        in_degs[edge.tgt.id] += 1
 
     sorted_vertices = sorted(cfg.digraph.vs,
                              key=lambda v: len(v.edges) + in_degs[v.id],
                              reverse=True)
-    
+
     relabelled_digraph = cfg.digraph.induced_subgraph(sorted_vertices)
 
     # old_to_new_vtx[i] is the vertex in the new graph corresponding to vertex
     # i in the original digraph
     old_to_new_vtx = [None] * cfg.digraph.n
-    for i, v in enumerate(sorted_vertices):
-        old_to_new_vtx[v.id] = relabelled_digraph.vs[i]
-
+    for index, vertex in enumerate(sorted_vertices):
+        old_to_new_vtx[vertex.id] = relabelled_digraph.vs[index]
     relabelled_ndds = create_relabelled_ndds(cfg.ndds, old_to_new_vtx)
     relabelled_cfg = copy.copy(cfg)
     relabelled_cfg.digraph = relabelled_digraph
@@ -286,13 +281,13 @@ def optimise_relabelled(formulation_fun, cfg):
 def create_ip_model(time_limit, verbose):
     """Create a Gurobi Model."""
 
-    m = Model("kidney-mip")
+    model = Model("kidney-mip")
     if not verbose:
-        m.params.outputflag = 0
-    m.params.mipGap = 0
+        model.params.outputflag = 0
+    model.params.mipGap = 0
     if time_limit is not None:
-        m.params.timelimit = time_limit
-    return m
+        model.params.timelimit = time_limit
+    return model
 
 ###################################################################################################
 #                                                                                                 #
