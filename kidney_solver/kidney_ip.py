@@ -237,7 +237,7 @@ class OptSolution(object):
                                    c.score)
                              for c in self.chains]
         return OptSolution(self.ip_model, relabelled_cycles, relabelled_chains,
-                           new_digraph, self.edge_success_prob)
+                           new_digraph, edge_success_prob=self.edge_success_prob)
 
 def optimise(model, cfg):
     if cfg.lp_file:
