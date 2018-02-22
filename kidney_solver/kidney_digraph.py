@@ -5,37 +5,50 @@ some related methods.
 
 from collections import deque
 
-def cycle_score(cycle, digraph):
+# Constants for the age formula
+AGE_SELECTOR = 20
+AGE_WEIGHT = 3
+AGE_FORMULA_FACTOR = 1e-5
+AGE_FORMULA_MAX_AGE_DIFF = 70
+
+
+def cycle_score(cycle, edge_success_prob=1, nhs=False):
     """Calculate the sum of a cycle's edge scores.
 
     Args:
         cycle: A list of Vertex objects in the cycle, with the first Vertex not repeated.
         digraph: The digraph in which this cycle appears.
     """
+    total = 0
+    for index, current_vertex in enumerate(cycle):
+        next_vertex = cycle[(index + 1) % len(cycle)]
+        # Find edge
+        edge = None
+        for edge in current_vertex.edges:
+            if edge.target() == next_vertex:
+                break
+        if not nhs:
+            total += edge.score * edge_success_prob
+            continue
+        # NHS scoring needs next donation, to get the donor-donor age
+        # difference, which is part of the weight calculations
+        next_plus_one_vertex = cycle[(index + 2) % len(cycle)]
+        # Find edge
+        next_edge = None
+        for next_edge in next_vertex.edges:
+            if next_edge.target() == next_plus_one_vertex:
+                break
+        total += edge.age_formula(next_edge.donor()) * edge_success_prob
+    return total
 
-    return sum(digraph.adj_mat[cycle[i-1].id][cycle[i].id].score
-                        for i in range(len(cycle)))
-
-def failure_aware_cycle_score(cycle, digraph, edge_success_prob):
-    """Calculate a cycle's total score, with edge failures and no backarc recourse.
-
-    Args:
-        cycle: A list of Vertex objects in the cycle, with the first Vertex not repeated.
-        digraph: The digraph in which this cycle appears.
-        edge_success_prob: The problem that any given edge will NOT fail
-    """
-
-    return sum(digraph.adj_mat[cycle[i-1].id][cycle[i].id].score
-                    for i in range(len(cycle))) * edge_success_prob**len(cycle)
-
-class Vertex:
+class Vertex(object):
     """A vertex in a directed graph (see the Digraph class)."""
 
-    def __init__(self, id):
-        self.id = id
+    def __init__(self, index):
+        self._index = index
         self.edges = []
-        self._donor_id = id
-        self._patient_id = id
+        self._donor_id = -1
+        self._patient_id = -1
 
     def set_patient_id(self, patient_id):
         """Set the patient ID of this vertex."""
@@ -58,36 +71,50 @@ class Vertex:
         return self._donor_id
 
     def __str__(self):
-        return ("V{}".format(self.id))
+        return "V{}".format(self._index)
+
+    def index(self):
+        """The index of the vertex."""
+        return self._index
 
 class Edge:
     """An edge in a directed graph (see the Digraph class)."""
 
-    def __init__(self, id, score, src, tgt, explanation):
+    def __init__(self, id, score, src, tgt, donor):
         self.id = id
         self.score = score
         self.src = src   # source vertex
         self.tgt = tgt # target vertex
-        self._expln = explanation  # String to identify this transplant
-
+        self._donor = donor
     def __str__(self):
-        return ("V" + str(self.src.id) + "-V" + str(self.tgt.id))
+        return ("V" + str(self.src.index()) + "-V" + str(self.tgt.index()))
 
     def target(self):
         """The target of this edge."""
         return self.tgt
 
-    def explanation(self):
-        """Why this edge exists."""
-        return self._expln
+    def donor(self):
+        """Which donor is donating for this edge."""
+        return self._donor
+
+    def age_formula(self, next_donor):
+        """Calculate the weight of this edge, taking into account the next
+        donor and the age difference between the two donors.
+        """
+        weight = AGE_WEIGHT
+        age_diff = abs(self.donor().age() - next_donor.age())
+        if age_diff > AGE_SELECTOR:
+            weight = 0
+        age_formula = (AGE_FORMULA_MAX_AGE_DIFF - age_diff) ** 2
+        return self.score + weight + age_formula * AGE_FORMULA_FACTOR
 
 class Digraph:
     """A directed graph, in which each edge has a numeric score.
 
     Data members:
         n: the number of vertices in the digraph
-        vs: an array of Vertex objects, such that vs[i].id == i
-        es: an array of Edge objects, such that es[i].id = i
+        vs: an array of Vertex objects, such that vs[i].index() == i
+        es: an array of Edge objects, such that es[i].index() = i
     """
 
     def __init__(self, n):
@@ -97,21 +124,21 @@ class Digraph:
         self.adj_mat = [[None for x in range(n)] for x in range(n)]
         self.es = []
 
-    def add_edge(self, score, source, tgt, explanation):
+    def add_edge(self, score, source, tgt, donor):
         """Add an edge to the digraph
 
         Args:
             score: the edge's score, as a float
             source: the source Vertex
             tgt: the edge's target Vertex
-            explanation: A description of the transplant represented by this edge.
+            donor: the Donor for this edge
         """
 
         id = len(self.es)
-        e = Edge(id, score, source, tgt, explanation)
+        e = Edge(id, score, source, tgt, donor)
         self.es.append(e)
         source.edges.append(e)
-        self.adj_mat[source.id][tgt.id] = e
+        self.adj_mat[source.index()][tgt.index()] = e
     
     def find_cycles(self, max_length):
         """Find cycles of length up to max_length in the digraph.
@@ -139,28 +166,28 @@ class Digraph:
             if len(current_path) < max_length:
                 for e in last_vtx.edges: 
                     v = e.tgt
-                    if (len(current_path) + shortest_paths_to_low_vtx[v.id] <= max_length
-                                and not vtx_used[v.id]):
+                    if (len(current_path) + shortest_paths_to_low_vtx[v.index()] <= max_length
+                                and not vtx_used[v.index()]):
                         current_path.append(v)
-                        vtx_used[v.id] = True
+                        vtx_used[v.index()] = True
                         for c in cycle(current_path):
                             yield c
-                        vtx_used[v.id] = False
+                        vtx_used[v.index()] = False
                         del current_path[-1]
 
         # Adjacency lists for transpose graph
         transp_adj_lists = [[] for v in self.vs]
         for edge in self.es:
-            transp_adj_lists[edge.tgt.id].append(edge.src)
+            transp_adj_lists[edge.tgt.index()].append(edge.src)
 
         for v in self.vs:
             shortest_paths_to_low_vtx = self.calculate_shortest_path_lengths(
                     v, max_length - 1,
-                    lambda u: (w for w in transp_adj_lists[u.id] if w.id > v.id))
-            vtx_used[v.id] = True
+                    lambda u: (w for w in transp_adj_lists[u.index()] if w.index() > v.index()))
+            vtx_used[v.index()] = True
             for c in cycle([v]):
                 yield c
-            vtx_used[v.id] = False
+            vtx_used[v.index()] = False
     
     def get_shortest_path_from_low_vtx(self, low_vtx, max_path):
         """ Returns an array of path lengths. For each v > low_vtx, if the shortest
@@ -168,7 +195,7 @@ class Digraph:
             will be the length of this shortest path. Otherwise, element v will be
             999999999."""
         return self.calculate_shortest_path_lengths(self.vs[low_vtx], max_path,
-                    adj_list_accessor=lambda v: (e.tgt for e in v.edges if e.tgt.id >= low_vtx))
+                    adj_list_accessor=lambda v: (e.tgt for e in v.edges if e.tgt.index() >= low_vtx))
 
     def get_shortest_path_to_low_vtx(self, low_vtx, max_path):
         """ Returns an array of path lengths. For each v > low_vtx, if the shortest
@@ -177,7 +204,7 @@ class Digraph:
             999999999."""
         def adj_list_accessor(v):
             for i in range(low_vtx, len(self.vs)):
-                if self.adj_mat[i][v.id]:
+                if self.adj_mat[i][v.index()]:
                     yield self.vs[i]
             
         return self.calculate_shortest_path_lengths(self.vs[low_vtx], max_path,
@@ -202,16 +229,16 @@ class Digraph:
         # Breadth-first search
         q = deque([from_v])
         distances = [999999999] * len(self.vs)
-        distances[from_v.id] = 0
+        distances[from_v.index()] = 0
 
         while q:
             v = q.popleft()
             #Note: >= is used instead of == on next line in case max_dist<0
-            if distances[v.id] >= max_dist:
+            if distances[v.index()] >= max_dist:
                 break
             for w in adj_list_accessor(v):
-                if distances[w.id] == 999999999:
-                    distances[w.id] = distances[v.id] + 1
+                if distances[w.index()] == 999999999:
+                    distances[w.index()] = distances[v.index()] + 1
                     q.append(w)
 
         return distances
@@ -219,16 +246,16 @@ class Digraph:
     def edge_exists(self, v1, v2):
         """Returns true if and only if an edge exists from Vertex v1 to Vertex v2."""
 
-        return self.adj_mat[v1.id][v2.id] is not None
+        return self.adj_mat[v1.index()][v2.index()] is not None
 
-    def update_edge(self, v1, v2, new_score, new_explanation):
+    def update_edge(self, v1, v2, new_score, donor):
         """If an edge exists, update its score, but only if the new score is
         higher."""
         if not self.edge_exists(v1, v2):
-            self.add_edge(v1, v2, new_score)
-        if self.adj_mat[v1.id][v2.id].score < new_score:
-            self.adj_mat[v1.id][v2.id].score = new_score
-            self.adj_mat[v1.id][v2.id]._expln = new_explanation
+            self.add_edge(v1, v2, new_score, donor)
+        if self.adj_mat[v1.index()][v2.index()].score < new_score:
+            self.adj_mat[v1.index()][v2.index()].score = new_score
+            self.adj_mat[v1.index()][v2.index()]._donor = donor
 
 
     def induced_subgraph(self, vertices):
@@ -237,11 +264,11 @@ class Digraph:
         subgraph = Digraph(len(vertices))
         for i, v in enumerate(vertices):
             for j, w in enumerate(vertices):
-                e = self.adj_mat[v.id][w.id]
+                e = self.adj_mat[v.index()][w.index()]
                 if e is not None:
                     new_src = subgraph.vs[i]
                     new_tgt = subgraph.vs[j]
-                    subgraph.add_edge(e.score, new_src, new_tgt, e.explanation())
+                    subgraph.add_edge(e.score, new_src, new_tgt, e.donor())
         return subgraph
 
     def __str__(self):

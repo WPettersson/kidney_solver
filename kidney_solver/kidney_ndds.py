@@ -18,25 +18,19 @@ class Ndd(object):
         vertex in the directed graph."""
         self.edges.append(NddEdge(target, score, explanation))
 
-    def set_donor_id(self, donor_id):
-        """Set the donor ID of this vertex."""
-        self._donor_id = donor_id
-
-    def donor_id(self):
-        """Get the donor ID of the donor-patient-pair represented by this
-        vertex.
-        """
-        return self._donor_id
 
 class NddEdge:
     """An edge pointing from an NDD to a vertex in the directed graph"""
-    def __init__(self, target_v, score, explanation):
+    def __init__(self, target_v, score, donor):
         self.target_v = target_v
         self.score = score
-        self._expln = explanation
+        self._donor = donor
+        self.grb_vars = []
+        self.grb_var_positions = []
 
-    def explanation(self):
-        return self._expln
+    def donor(self):
+        """The donor corresponding to this transplant."""
+        return self._donor
 
     def target(self):
         """The target of this edge."""
@@ -51,7 +45,7 @@ def create_relabelled_ndds(ndds, old_to_new_vtx):
     new_ndds = [Ndd() for ndd in ndds]
     for i, ndd in enumerate(ndds):
         for edge in ndd.edges:
-            new_ndds[i].add_edge(old_to_new_vtx[edge.target().id], edge.score, edge.explanation())
+            new_ndds[i].add_edge(old_to_new_vtx[edge.target().index()], edge.score, edge.donor())
 
     return new_ndds
 
@@ -111,8 +105,8 @@ def find_chains(digraph, ndds, max_chain, edge_success_prob=1):
         chains.append(Chain(ndd_idx, vertices[:], score))
         if len(vertices) < max_chain:
             for e in digraph.vs[vertices[-1]].edges:
-                if e.tgt.id not in vertices:
-                    vertices.append(e.tgt.id)
+                if e.tgt.index() not in vertices:
+                    vertices.append(e.tgt.index())
                     find_chains_recurse(vertices, score+e.score*edge_success_prob**len(vertices))
                     del vertices[-1]
     chains = []
@@ -120,7 +114,7 @@ def find_chains(digraph, ndds, max_chain, edge_success_prob=1):
         return chains
     for ndd_idx, ndd in enumerate(ndds):
         for e in ndd.edges:
-            vertices = [e.target_v.id]
+            vertices = [e.target_v.index()]
             find_chains_recurse(vertices, e.score*edge_success_prob)
     return chains
 

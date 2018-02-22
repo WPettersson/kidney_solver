@@ -95,6 +95,10 @@ def start():
         logging.basicConfig(level=logging.DEBUG,
                             format='%(asctime)s %(levelname)s:%(name)s '
                                    '%(message)s')
+    else:
+        logging.basicConfig(level=logging.INFO,
+                            format='%(asctime)s %(levelname)s:%(name)s '
+                                   '%(message)s')
     args.formulation = args.formulation.lower()
 
     input_lines = [line for line in sys.stdin if len(line.strip()) > 0]

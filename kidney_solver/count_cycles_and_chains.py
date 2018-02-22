@@ -29,24 +29,24 @@ def count_cycles(digraph, max_length):
         if num_vertices < max_length:
             for e in last_vtx.edges: 
                 v = e.tgt
-                if (num_vertices + shortest_paths_to_low_vtx[v.id] <= max_length
-                            and not vtx_used[v.id]):
-                    vtx_used[v.id] = True
+                if (num_vertices + shortest_paths_to_low_vtx[v.index()] <= max_length
+                            and not vtx_used[v.index()]):
+                    vtx_used[v.index()] = True
                     cycle(first_vtx, v, num_vertices + 1)
-                    vtx_used[v.id] = False
+                    vtx_used[v.index()] = False
 
     # Adjacency lists for transpose graph
     transp_adj_lists = [[] for v in digraph.vs]
     for edge in digraph.es:
-        transp_adj_lists[edge.tgt.id].append(edge.src)
+        transp_adj_lists[edge.tgt.index()].append(edge.src)
 
     for v in digraph.vs:
         shortest_paths_to_low_vtx = digraph.calculate_shortest_path_lengths(
                 v, max_length - 1,
-                lambda u: (w for w in transp_adj_lists[u.id] if w.id > v.id))
-        vtx_used[v.id] = True
+                lambda u: (w for w in transp_adj_lists[u.index()] if w.index() > v.index()))
+        vtx_used[v.index()] = True
         cycle(v, v, 1)
-        vtx_used[v.id] = False
+        vtx_used[v.index()] = False
     return counts_by_size
 
 def count_chains(digraph, ndds, max_chain):
@@ -55,19 +55,19 @@ def count_chains(digraph, ndds, max_chain):
         counts_by_size[length] += 1
         if length < max_chain:
             for e in digraph.vs[last_vtx].edges:
-                if not vtx_used[e.tgt.id]:
-                    vtx_used[e.tgt.id] = True
-                    find_chains_recurse(e.tgt.id, length+1)
-                    vtx_used[e.tgt.id] = False
+                if not vtx_used[e.tgt.index()]:
+                    vtx_used[e.tgt.index()] = True
+                    find_chains_recurse(e.tgt.index(), length+1)
+                    vtx_used[e.tgt.index()] = False
     counts_by_size = [0] * (max_chain + 1)
 
     if max_chain == 0:
         return counts_by_size
     for ndd_idx, ndd in enumerate(ndds):
         for e in ndd.edges:
-            vtx_used[e.target_v.id] = True
-            find_chains_recurse(e.target_v.id, 1)
-            vtx_used[e.target_v.id] = False
+            vtx_used[e.target_v.index()] = True
+            find_chains_recurse(e.target_v.index(), 1)
+            vtx_used[e.target_v.index()] = False
     return counts_by_size
 
 

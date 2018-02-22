@@ -20,14 +20,14 @@ def check_validity(opt_result, digraph, ndds, max_cycle, max_chain):
 
     # all used edges exist
     for chain in opt_result.chains:
-        if chain.vtx_indices[0] not in [e.target_v.id for e in ndds[chain.ndd_index].edges]:
+        if chain.vtx_indices[0] not in [e.target_v.index() for e in ndds[chain.ndd_index].edges]:
             raise KidneyOptimException("Edge from NDD {} to vertex {} is used but does not exist".format(
                     chain.ndd_index, chain.vtx_indices[0]))
     for cycle in opt_result.cycles:
         for i in range(len(cycle)):
-            if digraph.adj_mat[cycle[i-1].id][cycle[i].id] is None:
+            if digraph.adj_mat[cycle[i-1].index()][cycle[i].index()] is None:
                 raise KidneyOptimException("Edge from vertex {} to vertex {} is used but does not exist".format(
-                        cycle[i-1].id, cycle[i].id))
+                        cycle[i-1].index(), cycle[i].index()))
                 
     # no vertex or NDD is used twice
     ndd_used = [False] * len(ndds)
@@ -43,9 +43,9 @@ def check_validity(opt_result, digraph, ndds, max_cycle, max_chain):
             
     for cycle in opt_result.cycles:
         for vtx in cycle:
-            if vtx_used[vtx.id]:
-                raise KidneyOptimException("Vertex {} used more than once".format(vtx.id))
-            vtx_used[vtx.id] = True
+            if vtx_used[vtx.index()]:
+                raise KidneyOptimException("Vertex {} used more than once".format(vtx.index()))
+            vtx_used[vtx.index()] = True
 
     # cycle and chain caps are respected
     for chain in opt_result.chains:
@@ -76,14 +76,14 @@ def get_dist_from_nearest_ndd(digraph, ndds):
     q = deque(ndd_targets)
     distances = [999999999] * len(digraph.vs)
     for v in ndd_targets:
-        distances[v.id] = 1
+        distances[v.index()] = 1
 
     while q:
         v = q.popleft()
         for e in v.edges:
             w = e.tgt
-            if distances[w.id] == 999999999:
-                distances[w.id] = distances[v.id] + 1
+            if distances[w.index()] == 999999999:
+                distances[w.index()] = distances[v.index()] + 1
                 q.append(w)
 
     return distances
@@ -107,7 +107,7 @@ def find_selected_cycle(v_id, next_vv):
         
 def get_optimal_chains(digraph, ndds, edge_success_prob=1):
     # Chain edges
-    chain_next_vv = {e.src.id: e.tgt.id
+    chain_next_vv = {e.src.index(): e.tgt.index()
                         for e in digraph.es
                         for var in e.grb_vars
                         if var.x > 0.1}
@@ -116,7 +116,7 @@ def get_optimal_chains(digraph, ndds, edge_success_prob=1):
     for i, ndd in enumerate(ndds):
         for e in ndd.edges:
             if e.edge_var.x > 0.1:
-                vtx_indices = find_selected_path(e.target_v.id, chain_next_vv)
+                vtx_indices = find_selected_path(e.target_v.index(), chain_next_vv)
                 # Get score of edge from NDD
                 score = e.score * edge_success_prob
                 # Add scores of edges between vertices

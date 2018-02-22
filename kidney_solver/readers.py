@@ -1,9 +1,12 @@
 """Functions to read in data from input, usually stdin."""
 
+import logging
 
 from kidney_solver.kidney_digraph import Digraph
 from kidney_solver.kidney_ndds import Ndd
+from kidney_solver.agents import Donor
 
+LOGGER = logging.getLogger(__name__)
 
 class KidneyReadException(Exception):
     """Thrown on failure when reading from input."""
@@ -19,7 +22,12 @@ def read_digraph(lines):
         tokens = [x for x in line.split()]
         src_id = int(tokens[0])
         tgt_id = int(tokens[1])
-        explanation = "Donor %s to patient %s" % (src_id, tgt_id)
+        try:
+            age = int(tokens[3])
+            donor = Donor(src_id, False, age)
+        except IndexError:
+            # Unknown age
+            donor = Donor(src_id, False)
         if src_id < 0 or src_id >= vtx_count:
             raise KidneyReadException("Vertex index {} out of range.".format(src_id))
         if tgt_id < 0 or tgt_id >= vtx_count:
@@ -29,7 +37,7 @@ def read_digraph(lines):
         if digraph.edge_exists(digraph.vs[src_id], digraph.vs[tgt_id]):
             raise KidneyReadException("Duplicate edge from {} to {}".format(src_id, tgt_id))
         score = float(tokens[2])
-        digraph.add_edge(score, digraph.vs[src_id], digraph.vs[tgt_id], explanation)
+        digraph.add_edge(score, digraph.vs[src_id], digraph.vs[tgt_id], donor)
 
     if lines[edge_count+1].split()[0] != "-1" or len(lines) < edge_count+2:
         raise KidneyReadException("Incorrect edge count")
@@ -71,12 +79,11 @@ def read_digraph_xml(lines):
         sources = donor.find("sources")
         if not sources:
             source = altruist_lookup[index]
-            ndds[source].set_donor_id(donor.get("donor_id"))
+            age = int(donor.find("dage").text)
+            donor_object = Donor(int(index), False, age)
             matches = donor.find("matches")
             if matches:
                 for match in matches:
-                    explanation = ("Donor %s (altruist) to patient %s" %
-                                   (donor.get("donor_id"), match.find("recipient").text))
                     target = patient_lookup[int(match.find("recipient").text)]
                     score = float(match.find("score").text)
                     if source < 0 or source >= num_altruists:
@@ -89,18 +96,18 @@ def read_digraph_xml(lines):
                         raise KidneyReadException("Duplicate edge from NDD {0} "
                                                   "to vertex {1}.".format(source, target))
                     digraph.vs[target].set_patient_id(match.find("recipient").text)
-                    ndds[source].add_edge(digraph.vs[target], score, explanation)
+                    ndds[source].add_edge(digraph.vs[target], score, donor_object)
                     edge_exists[source][target] = True
         else:
             sources = list(sources)
             if len(sources) != 1:
                 raise KidneyReadException("Only donors with exactly 1 source are supported")
             source = patient_lookup[int(sources[0].text)]
+            age = int(donor.find("dage").text)
+            donor_object = Donor(int(index), False, age)
             matches = donor.find("matches")
             if matches:
                 for match in matches:
-                    explanation = ("Donor %s to patient %s" %
-                                   (index, match.find("recipient").text))
                     target = patient_lookup[int(match.find("recipient").text)]
                     score = float(match.find("score").text)
                     if source < 0 or source >= num_regular:
@@ -117,9 +124,10 @@ def read_digraph_xml(lines):
                     if digraph.edge_exists(digraph.vs[source], digraph.vs[target]):
                         digraph.update_edge(digraph.vs[source],
                                             digraph.vs[target], score,
-                                            explanation)
+                                            donor_object)
                     else:
-                        digraph.add_edge(score, digraph.vs[source], digraph.vs[target], explanation)
+                        digraph.add_edge(score, digraph.vs[source],
+                                         digraph.vs[target], donor_object)
     digraph.patient_lookup = patient_lookup
     digraph.altruist_lookup = altruist_lookup
     return digraph, ndds
@@ -147,15 +155,15 @@ def read_digraph_json(lines):
             patient_lookup[donor["sources"][0]] = num_regular
             num_regular += 1
     digraph = Digraph(num_regular)
+    LOGGER.info("%d regular donors, %d altruistic donors", num_regular, num_altruists)
     ndds = [Ndd() for _ in range(num_altruists)]
     edge_exists = [[False for _ in digraph.vs] for __ in ndds]
     for index, donor in json_data["data"].items():
         if "altruistic" in donor:
             source = altruist_lookup[int(index)]
-            ndds[source].set_donor_id(int(index))
+            age = int(donor["dage"])
+            donor_object = Donor(int(index), True, age)
             for match in donor["matches"]:
-                explanation = ("Donor %s (altruist) to patient %s" %
-                               (index, match["recipient"]))
                 target = patient_lookup[match["recipient"]]
                 score = match["score"]
                 if source < 0 or source >= num_altruists:
@@ -169,16 +177,25 @@ def read_digraph_json(lines):
                                               "vertex {1}.".format(source,
                                                                    target))
                 digraph.vs[target].set_patient_id(match["recipient"])
-                ndds[source].add_edge(digraph.vs[target], score, explanation)
+                ndds[source].add_edge(digraph.vs[target], score, donor_object)
                 edge_exists[source][target] = True
         else:
             if len(donor["sources"]) != 1:
                 raise KidneyReadException("We do not support donors providing "
                                           "for more than one patient")
             source = patient_lookup[donor["sources"][0]]
+            age = int(donor["dage"])
+            donor_object = Donor(int(index), False, age)
+            if digraph.vs[source].patient_id() == -1:
+                digraph.vs[source].set_patient_id(donor["sources"][0])
+            else:
+                assert digraph.vs[source].patient_id() == donor["sources"][0]
+            try:
+                donor["matches"]
+            except KeyError:
+                LOGGER.debug("Donor %s has no matches", index)
+                continue
             for match in donor["matches"]:
-                explanation = "Donor %s to patient %s" % (index,
-                                                          match["recipient"])
                 target = patient_lookup[match["recipient"]]
                 score = match["score"]
                 if source < 0 or source >= num_regular:
@@ -190,12 +207,10 @@ def read_digraph_json(lines):
                 if source == target:
                     raise KidneyReadException("Self-loop from {0} to {0} not "
                                               "permitted".format(source))
-                digraph.vs[source].set_donor_id(donor["sources"][0])
-                digraph.vs[target].set_patient_id(match["recipient"])
                 if digraph.edge_exists(digraph.vs[source], digraph.vs[target]):
-                    digraph.update_edge(digraph.vs[source], digraph.vs[target], score, explanation)
+                    digraph.update_edge(digraph.vs[source], digraph.vs[target], score, donor_object)
                 else:
-                    digraph.add_edge(score, digraph.vs[source], digraph.vs[target], explanation)
+                    digraph.add_edge(score, digraph.vs[source], digraph.vs[target], donor_object)
     digraph.patient_lookup = patient_lookup
     digraph.altruist_lookup = altruist_lookup
     return digraph, ndds
