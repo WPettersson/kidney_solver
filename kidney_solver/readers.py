@@ -45,6 +45,18 @@ def read_digraph(lines):
     return digraph
 
 
+def read_digraph_file(filename):
+    """Reads from a file, guessing the format based on the extension.
+    """
+    with open(filename, "r") as infile:
+        lines = [line for line in infile]
+    if filename[-4:] == ".xml":
+        graph, altruists = read_digraph_xml(lines)
+    elif filename[-5:] == ".json":
+        graph, altruists = read_digraph_json(lines)
+    return graph, altruists
+
+
 def read_digraph_xml(lines):
     """Reads a digraph from a list of strings in JSON format. Note that this
     includes altruistic donors.
