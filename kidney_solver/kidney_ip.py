@@ -775,53 +775,48 @@ def optimise_picef_nhs(cfg):
         an OptSolution object
     """
     LOGGER.info("Using PICEF formulation with NHS objectives")
-    LOGGER.debug("Finding cycles")
-    cycles = cfg.digraph.find_cycles(cfg.max_cycle)
-    LOGGER.info("Number of cycles: %d", len(cycles))
     model = create_ip_model(cfg.timelimit, cfg.verbose)
     model.params.method = 2
-
     LOGGER.debug("Adding cycle variables")
-    cycle_vars = [model.addVar(vtype=GRB.BINARY) for __ in cycles]
+    cycle_vars = []
+    two_cycles = []
+    three_cycles = []
+    three_cycles_with_backarcs = []
+    vtx_to_vars = [[] for __ in cfg.digraph.vs]
+    for cycle in cfg.digraph.generate_cycles(cfg.max_cycle):
+        var = model.addVar(vtype=GRB.BINARY)
+        cycle_vars.append((var, cycle))
+        for vert in cycle:
+            vtx_to_vars[vert.index()].append(var)
+        # Find 2-cycles and 3-cycles with back-arcs
+        if len(cycle) == 2:
+            two_cycles.append(var)
+        elif len(cycle) == 3:
+            three_cycles.append(var)
+            backarc = False
+            for index, vert1 in enumerate(cycle):
+                vert2 = cycle[index - 1 % len(cycle)]
+                for edge in vert1.edges:
+                    if edge.tgt == vert2:
+                        backarc = True
+                        break
+                if backarc:
+                    three_cycles_with_backarcs.append(var)
+                    break
+
+    LOGGER.info("Number of cycles: %d", len(cycle_vars))
+
     model.update()
 
-    vtx_to_vars = [[] for __ in cfg.digraph.vs]
 
     LOGGER.debug("Adding chain variables and constraints")
     add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, model, vtx_to_vars,
                                    store_edge_positions=True, store_collapse_chains=False)
 
-    # vtx_to_vars has a list for each vertex, that list contains the cycles
-    # incident with said vertex
-    for index, cycle in enumerate(cycles):
-        for vert in cycle:
-            vtx_to_vars[vert.index()].append(cycle_vars[index])
-
     LOGGER.debug("Adding vertex constraints")
     for var_list in vtx_to_vars:
         if var_list:
             model.addConstr(quicksum(var_list) <= 1)
-
-    # Note that for 2-cycles and 3-cycles, we store a list of tuples, each
-    # tuple containing (cycle, gurobi_variable_for_cycle).
-    # Find 2-cycles
-    two_cycles = [(cycle, var) for cycle, var in zip(cycles, cycle_vars)
-                  if len(cycle) == 2]
-    # Find 3-cycles with back-arcs
-    three_cycles_with_backarcs = []
-    for cycle, var in zip(cycles, cycle_vars):
-        if len(cycle) != 3:
-            continue
-        backarc = False
-        for index, vert1 in enumerate(cycle):
-            vert2 = cycle[index - 1 % len(cycle)]
-            for edge in vert1.edges:
-                if edge.tgt == vert2:
-                    backarc = True
-                    break
-            if backarc:
-                three_cycles_with_backarcs.append((cycle, var))
-                break
 
     first_edges = []
     second_edges = []
@@ -839,8 +834,8 @@ def optimise_picef_nhs(cfg):
         LOGGER.debug("Calculating objective in round %d", (iteration+1))
         # First just maximise 2-cycles, 3-cycles with backarcs, short
         # chains and collapsible long chains
-        obj = (quicksum([var for (cycle, var) in two_cycles]) +
-               quicksum([var for (cycle, var) in three_cycles_with_backarcs]) + short_chains + long_chains)
+        obj = (quicksum(two_cycles) +
+               quicksum(three_cycles_with_backarcs) + short_chains + long_chains)
         if iteration == 0:
             model.setObjective(obj, GRB.MAXIMIZE)
             optimise(model, cfg)
@@ -853,11 +848,9 @@ def optimise_picef_nhs(cfg):
         model.addConstr(obj >= obj1_value)
 
         # Next maximise number of transplants
-        obj = (quicksum(len(c) * var
-                        for c, var in zip(cycles, cycle_vars)) +
-                quicksum(e.edge_var for ndd in cfg.ndds
-                        for e in ndd.edges) +
-                quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
+        obj = (quicksum(len(cycle) * var for (var, cycle) in cycle_vars) +
+               quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
+               quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
         if iteration == 1:
             model.setObjective(obj, GRB.MAXIMIZE)
             optimise(model, cfg)
@@ -870,7 +863,7 @@ def optimise_picef_nhs(cfg):
         model.addConstr(obj >= obj2_value)
 
         # Third objective, minimize three-ways
-        obj = quicksum(var for c, var in zip(cycles, cycle_vars) if len(c) == 3)
+        obj = quicksum(three_cycles)
         if iteration == 2:
             model.setObjective(obj, GRB.MINIMIZE)
             optimise(model, cfg)
@@ -884,8 +877,7 @@ def optimise_picef_nhs(cfg):
 
         # Fourth objective, maximise three-ways with back-arcs and collapsible
         # long chains
-        obj = (quicksum([var for (cycle, var) in three_cycles_with_backarcs]) +
-               quicksum([var for (cycle, var) in two_cycles]))
+        obj = quicksum(three_cycles_with_backarcs) + quicksum(two_cycles)
         if iteration == 3:
             model.setObjective(obj, GRB.MAXIMIZE)
             optimise(model, cfg)
@@ -896,8 +888,8 @@ def optimise_picef_nhs(cfg):
             continue
         model.addConstr(obj >= obj4_value)
         # This must now be the last iteration
-        obj_expr = quicksum(cycle_score(c, cfg.edge_success_prob, nhs=True) * var
-                            for c, var in zip(cycles, cycle_vars))
+        obj_expr = quicksum(cycle_score(cycle, cfg.edge_success_prob, nhs=True)
+                            * var for (var, cycle) in cycle_vars)
         if cfg.max_chain != 0:
             for vertex in cfg.ndds + cfg.digraph.vs:
                 for chain_one in vertex.edges:
@@ -921,7 +913,7 @@ def optimise_picef_nhs(cfg):
         LOGGER.debug("Fifth round complete, size is %d", obj5_value)
 
     return OptSolution(ip_model=model,
-                       cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
+                       cycles=[cycle for (var, cycle) in cycle_vars if var.x > 0.5],
                        chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
                             cfg.digraph, cfg.ndds, cfg.edge_success_prob),
                        digraph=cfg.digraph, ndds=cfg.ndds,
