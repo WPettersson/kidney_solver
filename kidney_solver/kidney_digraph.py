@@ -147,7 +147,7 @@ class Digraph:
             a list of cycles. Each cycle is represented as a list of
             vertices, with the first vertex _not_ repeated at the end.
         """
-        
+
         return [cycle for cycle in self.generate_cycles(max_length)]
 
     def generate_cycles(self, max_length):
@@ -164,10 +164,10 @@ class Digraph:
             if self.edge_exists(last_vtx, current_path[0]):
                 yield current_path[:]
             if len(current_path) < max_length:
-                for e in last_vtx.edges: 
-                    v = e.tgt
+                for edge in last_vtx.edges:
+                    v = edge.tgt
                     if (len(current_path) + shortest_paths_to_low_vtx[v.index()] <= max_length
-                                and not vtx_used[v.index()]):
+                            and not vtx_used[v.index()]):
                         current_path.append(v)
                         vtx_used[v.index()] = True
                         for c in cycle(current_path):

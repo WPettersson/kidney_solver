@@ -71,6 +71,9 @@ def start():
     parser.add_argument("--lp-file", "-l", required=False, default=None,
             metavar='FILE',
             help="Write the IP model to FILE, then exit.")
+    parser.add_argument("--details", required=False, default=None,
+            metavar='FILE',
+            help="Write a summary of the problem to FILE, then exit.")
     parser.add_argument("--size", "-s", required=False,
                         action='store_true',
                         help="Only maximise number of transplants")
@@ -122,7 +125,7 @@ def start():
     cfg = kidney_ip.OptConfig(digraph, altruists, args.cycle_cap,
                               args.chain_cap, args.verbose, args.timelimit,
                               args.edge_success_prob, args.eef_alt_constraints,
-                              args.lp_file, args.relax, args.size)
+                              args.lp_file, args.relax, args.size, args.details)
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
     time_taken = time.time() - start_time
     if args.std_output:

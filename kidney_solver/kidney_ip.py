@@ -39,7 +39,7 @@ class OptConfig(object):
 
     def __init__(self, digraph, ndds=None, max_cycle=3, max_chain=0, verbose=False,
                  timelimit=None, edge_success_prob=1, eef_alt_constraints=False,
-                 lp_file=None, relax=False, size=False):
+                 lp_file=None, relax=False, size=False, details=None):
         self.digraph = digraph
         self.ndds = ndds
         self.max_cycle = max_cycle
@@ -51,6 +51,7 @@ class OptConfig(object):
         self.lp_file = lp_file
         self.relax = relax
         self._only_size = size
+        self.details = details
         if size:
             LOGGER.info("Only optimising for size.")
 
@@ -240,7 +241,11 @@ def optimise(model, cfg):
     LOGGER.info("Number of variables: %d", model.numVars)
     LOGGER.info("Number of constraints: %d", model.numConstrs)
     LOGGER.info("Number of non-zero coefficients: %d", model.numNZs)
-    if cfg.lp_file:
+    if cfg.details:
+        with open(cfg.details, "a") as outfile:
+            outfile.write("%d,%d,%d,%d\n" % (cfg.numCycles, model.numVars,
+                                             model.numConstrs, model.numNZs))
+    elif cfg.lp_file:
         model.write(cfg.lp_file)
     elif cfg.relax:
         relaxed = model.relax()
@@ -686,15 +691,8 @@ def optimise_picef(cfg):
         an OptSolution object
     """
     LOGGER.info("Using PICEF formulation")
-    LOGGER.info("Finding cycles")
-    cycles = cfg.digraph.find_cycles(cfg.max_cycle)
-    LOGGER.info("Number of cycles: %d", len(cycles))
     model = create_ip_model(cfg.timelimit, cfg.verbose)
     model.params.method = 2
-
-    LOGGER.info("Adding cycle variables")
-    cycle_vars = [model.addVar(vtype=GRB.BINARY) for __ in cycles]
-    model.update()
 
     vtx_to_vars = [[] for __ in cfg.digraph.vs]
 
@@ -704,10 +702,15 @@ def optimise_picef(cfg):
 
     # vtx_to_vars has a list for each vertex, that list contains the cycles
     # incident with said vertex
-    for index, cycle in enumerate(cycles):
+    LOGGER.info("Finding cycles")
+    cycle_vars = []
+    for cycle in cfg.digraph.generate_cycles(cfg.max_cycle):
+        var = model.addVar(vtype=GRB.BINARY)
+        cycle_vars.append((var, cycle))
         for vert in cycle:
-            vtx_to_vars[vert.index()].append(cycle_vars[index])
-
+            vtx_to_vars[vert.index()].append(var)
+    LOGGER.info("Number of cycles: %d", len(cycle_vars))
+    cfg.numCycles = len(cycle_vars)
     LOGGER.info("Adding vertex constraints")
     for var_list in vtx_to_vars:
         if var_list:
@@ -716,35 +719,35 @@ def optimise_picef(cfg):
     LOGGER.info("Calculating objective")
     if cfg.max_chain == 0:
         if cfg.only_size():
-            obj_expr = quicksum(len(c) * cfg.edge_success_prob ** len(c) * var
-                                for c, var in zip(cycles, cycle_vars))
+            obj_expr = quicksum(len(cycle) * cfg.edge_success_prob ** len(cycle) * var
+                                for var, cycle in cycle_vars)
         else:
-            obj_expr = quicksum(cycle_score(c, cfg.edge_success_prob) * var
-                                for c, var in zip(cycles, cycle_vars))
+            obj_expr = quicksum(cycle_score(cycle, cfg.edge_success_prob) * var
+                                for var, cycle in cycle_vars)
     elif cfg.edge_success_prob == 1:
         if cfg.only_size():
-            obj_expr = (quicksum(len(c) * var for c, var in zip(cycles, cycle_vars)) +
+            obj_expr = (quicksum(len(cycle) * var for var, cycle in cycle_vars) +
                         quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
                         quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
         else:
-            obj_expr = (quicksum(cycle_score(c, cfg.edge_success_prob) * var
-                                 for c, var in zip(cycles, cycle_vars)) +
+            obj_expr = (quicksum(cycle_score(cycle, cfg.edge_success_prob) * var
+                                 for var, cycle in cycle_vars) +
                         quicksum(e.score * e.edge_var for ndd in cfg.ndds
                                  for e in ndd.edges) +
                         quicksum(e.score * var for e in cfg.digraph.es
                                  for var in e.grb_vars))
     else:
         if cfg.only_size():
-            obj_expr = (quicksum(len(c) * cfg.edge_success_prob ** len(c)  * var
-                                 for c, var in zip(cycles, cycle_vars)) +
+            obj_expr = (quicksum(len(cycle) * cfg.edge_success_prob ** len(cycle)  * var
+                                 for var, cycle in cycle_vars) +
                         quicksum(cfg.edge_success_prob * e.edge_var
                                  for ndd in cfg.ndds for e in ndd.edges) +
                         quicksum(cfg.edge_success_prob**(pos+1) * var
                                  for e in cfg.digraph.es
                                  for var, pos in zip(e.grb_vars, e.grb_var_positions)))
         else:
-            obj_expr = (quicksum(cycle_score(c, cfg.edge_success_prob) * var
-                                 for c, var in zip(cycles, cycle_vars)) +
+            obj_expr = (quicksum(cycle_score(cycle, cfg.edge_success_prob) * var
+                                 for var, cycle in cycle_vars) +
                         quicksum(e.score*cfg.edge_success_prob * e.edge_var
                                  for ndd in cfg.ndds for e in ndd.edges) +
                         quicksum(e.score*cfg.edge_success_prob**(pos+1) * var
@@ -759,9 +762,10 @@ def optimise_picef(cfg):
         return None
 
     return OptSolution(ip_model=model,
-                       cycles=[c for c, v in zip(cycles, cycle_vars) if v.x > 0.5],
-                       chains=[] if cfg.max_chain==0 else kidney_utils.get_optimal_chains(
-                            cfg.digraph, cfg.ndds, cfg.edge_success_prob),
+                       cycles=[cycle for var, cycle in cycle_vars if var.x > 0.5],
+                       chains=[] if cfg.max_chain == 0 else
+                       kidney_utils.get_optimal_chains(cfg.digraph, cfg.ndds,
+                                                       cfg.edge_success_prob),
                        digraph=cfg.digraph, ndds=cfg.ndds,
                        edge_success_prob=cfg.edge_success_prob)
 
@@ -803,9 +807,8 @@ def optimise_picef_nhs(cfg):
                 if backarc:
                     three_cycles_with_backarcs.append(var)
                     break
-
     LOGGER.info("Number of cycles: %d", len(cycle_vars))
-
+    cfg.numCycles = len(cycle_vars)
     model.update()
 
 
