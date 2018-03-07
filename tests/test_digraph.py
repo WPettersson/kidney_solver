@@ -1,6 +1,6 @@
 import time
 
-from nose.tools import raises, eq_
+from nose.tools import raises, eq_, ok_
 
 from kidney_solver.kidney_digraph import *
 from kidney_solver.readers import KidneyReadException, read_digraph
@@ -57,8 +57,8 @@ def test_find_cycles():
     start = time.time()
     slow_cycles = simple_find_cycles(d, max_cycle)
     print(time.time() - start)
-    assert len(cycles) > 100
-    assert len(slow_cycles) == len(cycles)
+    ok_(len(cycles) > 100)
+    eq_(len(slow_cycles), len(cycles))
 
 @raises(KidneyReadException)
 def test_raises_exception_on_self_loop():

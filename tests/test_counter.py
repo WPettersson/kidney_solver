@@ -5,6 +5,8 @@ import kidney_solver.kidney_ndds as k_ndds
 import kidney_solver.kidney_utils as k_utils
 import kidney_solver.count_cycles_and_chains as ccc
 
+from nose.tools import eq_
+
 def read_with_ndds(basename):
     with open(basename + ".input") as f:
         lines = f.readlines()
@@ -21,12 +23,10 @@ def test_counter():
     cycle_counts = [0] * (max_length + 1)
     for c in cycles:
         cycle_counts[len(c)] += 1
-    assert cycle_counts == ccc.count_cycles(d, max_length)
+    eq_(cycle_counts, ccc.count_cycles(d, max_length))
 
     chains = k_ndds.find_chains(d, ndds, max_length)
     chain_counts = [0] * (max_length + 1)
     for c in chains:
         chain_counts[len(c.vtx_indices)] += 1
-    assert chain_counts == ccc.count_chains(d, ndds, max_length)
-    
-    
+    eq_(chain_counts, ccc.count_chains(d, ndds, max_length))
