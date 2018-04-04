@@ -14,10 +14,10 @@ def read(filename):
 
 def test_cycle_score():
     d = Digraph(4)
-    d.add_edge(1.5, d.vs[0], d.vs[1], Donor(1, False))
-    d.add_edge(1, d.vs[1], d.vs[2], Donor(2, False))
-    d.add_edge(1, d.vs[2], d.vs[3], Donor(3, False))
-    d.add_edge(1, d.vs[3], d.vs[0], Donor(4, False))
+    d.add_edge(1.5, d.vs[0], d.vs[1], Donor(1, False, 25))
+    d.add_edge(1, d.vs[1], d.vs[2], Donor(2, False, 25))
+    d.add_edge(1, d.vs[2], d.vs[3], Donor(3, False, 25))
+    d.add_edge(1, d.vs[3], d.vs[0], Donor(4, False, 25))
     c = [d.vs[i] for i in range(4)]
     eq_(cycle_score(c), 4.5)
     eq_(cycle_score(c, nhs=True), 16.696)
