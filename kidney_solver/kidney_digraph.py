@@ -77,7 +77,7 @@ class Vertex(object):
         """The index of the vertex."""
         return self._index
 
-class Edge:
+class Edge(object):
     """An edge in a directed graph (see the Digraph class)."""
 
     def __init__(self, id, score, src, tgt, donor):
@@ -108,7 +108,7 @@ class Edge:
         age_formula = (AGE_FORMULA_MAX_AGE_DIFF - age_diff) ** 2
         return self.score + weight + age_formula * AGE_FORMULA_FACTOR
 
-class Digraph:
+class Digraph(object):
     """A directed graph, in which each edge has a numeric score.
 
     Data members:
@@ -188,14 +188,16 @@ class Digraph:
             for c in cycle([v]):
                 yield c
             vtx_used[v.index()] = False
-    
+
     def get_shortest_path_from_low_vtx(self, low_vtx, max_path):
         """ Returns an array of path lengths. For each v > low_vtx, if the shortest
             path from low_vtx to v is shorter than max_path, then element v of the array
             will be the length of this shortest path. Otherwise, element v will be
             999999999."""
         return self.calculate_shortest_path_lengths(self.vs[low_vtx], max_path,
-                    adj_list_accessor=lambda v: (e.tgt for e in v.edges if e.tgt.index() >= low_vtx))
+                                                    adj_list_accessor=lambda v:
+                                                    (e.tgt for e in v.edges if
+                                                     e.tgt.index() >= low_vtx))
 
     def get_shortest_path_to_low_vtx(self, low_vtx, max_path):
         """ Returns an array of path lengths. For each v > low_vtx, if the shortest
@@ -206,12 +208,14 @@ class Digraph:
             for i in range(low_vtx, len(self.vs)):
                 if self.adj_mat[i][v.index()]:
                     yield self.vs[i]
-            
+
         return self.calculate_shortest_path_lengths(self.vs[low_vtx], max_path,
-                    adj_list_accessor=adj_list_accessor)
+                                                    adj_list_accessor=adj_list_accessor)
 
     def calculate_shortest_path_lengths(self, from_v, max_dist,
-                adj_list_accessor=lambda v: (e.tgt for e in v.edges)):
+                                        adj_list_accessor=lambda v: (e.tgt for
+                                                                     e in
+                                                                     v.edges)):
         """Calculate the length of the shortest path from vertex from_v to each
         vertex with a greater or equal index, using paths containing
         only vertices indexed greater than or equal to from_v.
@@ -270,6 +274,7 @@ class Digraph:
                     new_tgt = subgraph.vs[j]
                     subgraph.add_edge(e.score, new_src, new_tgt, e.donor())
         return subgraph
+
 
     def __str__(self):
         return "\n".join([str(v) for v in self.vs])
