@@ -15,10 +15,10 @@ class Forest(object):
         self._root = {}
         self._distances = {}
 
-    def add_node(self, node, height=0):
+    def add_node(self, node):
         """Add a node to the forest."""
-        self._nodes[node] = height
-        self._root[node] = node
+        self._nodes[node] = node
+        self._parent[node] = None
 
     def add_edge(self, node_one, node_two):
         """Add an edge to the forest. Note that when adding the edge (a, b),
@@ -26,13 +26,17 @@ class Forest(object):
         """
         if node_one not in self._nodes:
             raise InvalidEdgeException()
-        self._nodes[node_two] = self._nodes[node_one] + 1
-        self._root[node_two] = self._root[node_one]
+        self._nodes[node_two] = node_two
         self._parent[node_two] = node_one
 
     def root(self, node):
         """Return the root of the given node."""
-        return self._root[node]
+        parent = self._parent[node]
+        the_root = node
+        while parent is not None:
+            the_root = parent
+            parent = self._parent[parent]
+        return the_root
 
     def has_node(self, node):
         """Does a node exist in this forest?"""
@@ -41,18 +45,39 @@ class Forest(object):
     def even_height_nodes(self):
         """Return a generator for even-height nodes.
         """
-        return x for x in self._nodes if x % 2 == 0
+        return (x for x in self._nodes if self.distance(x, self.root(x)) % 2 == 0)
 
-    def height(node):
-        """Get the height (distance to root) for a node.
-        """
-        return self._nodes[node]
+    def path_between(self, one, two):
+        """Find the path between two nodes."""
+        # First just go up to the root from node one, storing the height along
+        # the way
+        parent = one
+        if one == two:
+            return []
+        paths = {}
+        path = []
+        while parent:
+            path.append(parent)
+            paths[parent] = list(path)
+            parent = self._parent[parent]
+        # Now go up the parents of node_two until we find a parent of node_one
+        parent = two
+        path = []
+        while parent:
+            path.append(parent)
+            if parent in paths:
+                path.reverse()
+                return paths[parent] + path
+            parent = self._parent[parent]
+        return None
 
-    def distance(node_one, node_two):
+    def distance(self, node_one, node_two):
         """Find the distance between two nodes."""
         # First just go up to the root from node one, storing the height along
         # the way
         parent = node_one
+        if node_one == node_two:
+            return 0
         parents = {}
         height = 0
         while parent:
@@ -65,5 +90,17 @@ class Forest(object):
         while parent:
             if parent in parents:
                 return height + parents[parent]
+            height += 1
             parent = self._parent[parent]
         return 99999999999
+
+    def path_to_root(self, node):
+        """Return the path to the root from this node, as a list of edges."""
+        now = node
+        path = []
+        parent = self._parent[now]
+        while parent:
+            path.append(now, parent)
+            now = parent
+            parent = self._parent[now]
+        return path
