@@ -22,3 +22,8 @@ class Donor(object):
         if self._age is None:
             raise UnknownAgeException()
         return self._age
+
+    def index(self):
+        """The index of the donor.
+        """
+        return self._ident
