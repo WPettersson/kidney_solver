@@ -140,6 +140,7 @@ def read_digraph_xml(lines):
                     else:
                         digraph.add_edge(score, digraph.vs[source],
                                          digraph.vs[target], donor_object)
+    LOGGER.info("%d arcs", digraph.num_edges())
     digraph.patient_lookup = patient_lookup
     digraph.altruist_lookup = altruist_lookup
     return digraph, ndds
@@ -225,6 +226,7 @@ def read_digraph_json(lines):
                     digraph.add_edge(score, digraph.vs[source], digraph.vs[target], donor_object)
     digraph.patient_lookup = patient_lookup
     digraph.altruist_lookup = altruist_lookup
+    LOGGER.info("%d arcs", digraph.num_edges())
     return digraph, ndds
 
 
