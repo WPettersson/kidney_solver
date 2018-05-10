@@ -141,12 +141,13 @@ class Graph(object):
             exposed[vertex] = True
         for m in matching:
             marked[m] = True
+            marked_v[m[0]] = True
+            marked_v[m[1]] = True
             if m[0] in exposed:
                 del exposed[m[0]]
             if m[1] in exposed:
                 del exposed[m[1]]
         for vertex in exposed.keys():
-            LOGGER.debug("" + str(vertex) + " is exposed")
             forest.add_node(vertex)
         v = None
         for v in forest.even_height_nodes():
