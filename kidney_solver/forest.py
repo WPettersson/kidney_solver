@@ -3,8 +3,14 @@ for Edmond's Blossom algorithm for finding maximum weight matchings in graphs,
 and may not be suitable for other uses.
 """
 
+import logging
+
+
 class InvalidEdgeException(Exception):
     pass
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Forest(object):
@@ -100,7 +106,7 @@ class Forest(object):
         path = []
         parent = self._parent[now]
         while parent:
-            path.append(now, parent)
+            path.append((now, parent))
             now = parent
             parent = self._parent[now]
         return path
