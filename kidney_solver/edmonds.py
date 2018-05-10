@@ -8,7 +8,7 @@ from kidney_solver.forest import Forest
 
 
 LOGGER = logging.getLogger(__name__)
-
+LOGGER.setLevel(logging.WARNING)
 
 def get_blossom_path(blossom, entry, leave):
     """Given a blossom (odd length cycle) and an leave and entry point, find the
@@ -59,7 +59,8 @@ class Graph(object):
     def add_node(self, node):
         """Add a node."""
         # List of adjacent vertices.
-        self._nodes[node] = []
+        if node not in self._nodes:
+            self._nodes[node] = []
 
     def add_edge(self, edge):
         """Add an edge."""
@@ -85,14 +86,20 @@ class Graph(object):
         """Return the degree of a node."""
         return len(self._nodes[node])
 
-    def find_a_maximum_matching(self):
+    def find_a_maximum_matching(self, matching=None):
         """Find a maximum matching"""
-        matching = []
+        if matching is None:
+            matching = []
+            # Initialise with a greedy matching
+            known = []
+            for edge in self._edges:
+                if edge[0] not in known and edge[1] not in known:
+                    matching.append(edge)
+                    known.extend([edge[0], edge[1]])
         while True:
             path, forced = self.find_augmenting_path(matching)
             if not path:
                 break
-            LOGGER.debug("Found path " + str(path))
             # Follow augmenting path, which starts and ends with open edges not in
             # the matching, and alternates with edges that currently are in the
             # matching.
@@ -105,11 +112,16 @@ class Graph(object):
 
     def find_maximally_matchable_edges(self):
         """Find all edges which are in every maximum sized matching."""
-        largest = len(self.find_a_maximum_matching())
+        LOGGER.warn("Finding max")
+        largest = self.find_a_maximum_matching()
         matchable = []
         for e in list(self._edges):
             self.remove_edge(e)
-            if len(self.find_a_maximum_matching()) < largest:
+            new_matching = list(largest)
+            if e in new_matching:
+                new_matching.remove(e)
+            LOGGER.warn("Testing %s", e)
+            if len(self.find_a_maximum_matching(new_matching)) < len(largest):
                 matchable.append(e)
             self.add_edge(e)
         return matchable
@@ -144,21 +156,18 @@ class Graph(object):
                 continue
             break
         keep_going = v is not None
-        LOGGER.debug("Found " + str(v))
+        LOGGER.debug("Looking for edge to " + str(v))
         while keep_going:
             for w in self._nodes.keys():
-                LOGGER.debug("Looking at " + str(v) + ", " + str(w))
                 if w == v:
                     continue
                 if (v, w) not in self._edges and (w, v) not in self._edges:
-                    LOGGER.debug("not edge")
                     continue
                 if (v, w) in marked or (w, v) in marked:
-                    LOGGER.debug("marked")
                     continue
-                LOGGER.debug("Interesting " + str(v) + ", " + str(w))
+                LOGGER.debug("Interesting edge " + str(v) + ", " + str(w))
                 if not forest.has_node(w):
-                    LOGGER.debug("w is matched")
+                    #LOGGER.debug("w is matched")
                     # w is matched in M
                     for m in matching:
                         if m[0] == w:
@@ -170,7 +179,7 @@ class Graph(object):
                             forest.add_edge(w, m[0])
                             break
                 else:
-                    LOGGER.debug("w is not matched")
+                    #LOGGER.debug("w is not matched")
                     if forest.distance(w, forest.root(w)) % 2 == 1:
                         # Do nothing
                         pass
