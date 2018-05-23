@@ -27,3 +27,16 @@ class Donor(object):
         """The index of the donor.
         """
         return self._ident
+
+    def is_altruistic(self):
+        """Is this donor altruistic?"""
+        return self._altruistic
+
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        if self._altruistic:
+            return "D(A)%s" % self.index()
+        else:
+            return "D%s" % self.index()
