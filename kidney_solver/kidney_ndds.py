@@ -32,9 +32,19 @@ class NddEdge:
         """The donor corresponding to this transplant."""
         return self._donor
 
+    def source(self):
+        """The source (donor) of this transplant."""
+        return self._donor
+
     def target(self):
         """The target of this edge."""
         return self.target_v
+
+    def __str__(self):
+        return "%s-%s" % (self._donor, self.target_v)
+
+    def __repr__(self):
+        return str(self)
 
 def create_relabelled_ndds(ndds, old_to_new_vtx):
     """Creates a copy of a n array of NDDs, with target vertices changed.

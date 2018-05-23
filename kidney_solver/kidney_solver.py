@@ -88,6 +88,8 @@ def start():
                         help="Write solution to stdout")
     parser.add_argument("--xml", required=False, metavar='FILE',
                         help="Write solution as XML to FILE")
+    parser.add_argument("--matchable", required=False, action="store_true",
+                        help="Find and use maximally matchable edges (For NHS option only)")
     parser.add_argument("--debug", "-d", required=False, action="store_true",
                         help="Enable debugging output")
 
@@ -126,6 +128,8 @@ def start():
                               args.chain_cap, args.verbose, args.timelimit,
                               args.edge_success_prob, args.eef_alt_constraints,
                               args.lp_file, args.relax, args.size, args.details)
+    if args.matchable:
+        cfg._constrain_maximal = True
     opt_solution = solve_kep(cfg, args.formulation, args.use_relabelled)
     time_taken = time.time() - start_time
     if args.std_output:

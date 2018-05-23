@@ -4,6 +4,17 @@ some related methods.
 """
 
 from collections import deque
+import logging
+
+from networkx.algorithms.matching import max_weight_matching
+from networkx import Graph as nx_Graph
+
+
+from kidney_solver.edmonds import Graph
+
+
+LOGGER = logging.getLogger(__name__)
+
 
 # Constants for the age formula
 AGE_SELECTOR = 20
@@ -40,6 +51,20 @@ def cycle_score(cycle, edge_success_prob=1, nhs=False):
                 break
         total += edge.age_formula(next_edge.donor()) * edge_success_prob
     return total
+
+
+def cycle_contains(cycle, edge):
+    """Return True if the given cycle contains the given edge. The cycle is a
+    list of vertices as given by generate_cycles and the edge is an Edge
+    object.
+    """
+    for index, v in enumerate(cycle):
+        if v.index() == edge.source().index() and cycle[(index+1) % len(cycle)].index() == edge.target().index():
+            return True
+        if v.index() == edge.source().index() and cycle[(index-1) % len(cycle)].index() == edge.target().index():
+            return True
+    return False
+
 
 class Vertex(object):
     """A vertex in a directed graph (see the Digraph class)."""
@@ -88,6 +113,10 @@ class Edge(object):
         self._donor = donor
     def __str__(self):
         return ("V" + str(self.src.index()) + "-V" + str(self.tgt.index()))
+
+    def source(self):
+        """The source of this edge."""
+        return self.src
 
     def target(self):
         """The target of this edge."""
@@ -247,6 +276,10 @@ class Digraph(object):
 
         return distances
 
+    def num_edges(self):
+        """The number of edges (arcs) in the graph."""
+        return len(self.es)
+
     def edge_exists(self, v1, v2):
         """Returns true if and only if an edge exists from Vertex v1 to Vertex v2."""
 
@@ -261,7 +294,6 @@ class Digraph(object):
             self.adj_mat[v1.index()][v2.index()].score = new_score
             self.adj_mat[v1.index()][v2.index()]._donor = donor
 
-
     def induced_subgraph(self, vertices):
         """Returns the subgraph indiced by a given list of vertices."""
 
@@ -275,6 +307,86 @@ class Digraph(object):
                     subgraph.add_edge(e.score, new_src, new_tgt, e.donor())
         return subgraph
 
-
     def __str__(self):
         return "\n".join([str(v) for v in self.vs])
+
+    def get_max_matchable_edges_networkx(self, ndds=None):
+        """Find the set of edges which must be in every maximum matching.
+        """
+        g = nx_Graph()
+        translate = {}
+        for edge in self.es:
+            v1 = edge.source()
+            v2 = edge.target()
+            if v2.index() < v1.index():
+                continue
+            new_edge = (v1.index(), v2.index())
+            if self.edge_exists(v2, v1) or edge.donor().is_altruistic():
+                g.add_node(new_edge[0])
+                g.add_node(new_edge[1])
+                g.add_edge(v1.index(), v2.index())
+                translate[new_edge] = edge
+        count = len(translate)
+        for ndd in ndds:
+            for edge in ndd.edges:
+                v1 = edge.donor()
+                v2 = edge.target()
+                new_edge = (v2.index(), count+v1.index())
+                g.add_node(new_edge[0])
+                g.add_node(new_edge[1])
+                g.add_edge(v2.index(), count+v1.index())
+                translate[new_edge] = edge
+        # TODO Add NDD edges to this graph!
+        largest = max_weight_matching(g)
+        LOGGER.debug("Largest matching has size %d", len(largest))
+        edges = []
+        for v1, v2 in largest.items():
+            if v1 < v2:
+                edges.append([v1, v2])
+        matchable = []
+        while edges:
+            v1, v2 = edges.pop()
+            LOGGER.debug("Testing [%s, %s]", v1, v2)
+            g.remove_edge(v1, v2)
+            new_max = max_weight_matching(g)
+            if len(new_max) < len(largest):
+                LOGGER.debug("new matching has size %d", len(new_max))
+                edges = list(filter(lambda x: x[0] in new_max, edges))
+                matchable.append((v1, v2))
+                LOGGER.debug("[%s, %s] is matchable", v1, v2)
+            g.add_edge(v1, v2)
+        LOGGER.info("Found %s maximally matchable edges" % len(matchable))
+        return (translate[e] for e in matchable)
+
+
+    def get_max_matchable_edges_self(self, ndds=None):
+        """Find the set of edges which must be in every maximum matching.
+        """
+        # Build the simple graph
+        g = Graph()
+        translate = {}
+        for edge in self.es:
+            v1 = edge.source()
+            v2 = edge.target()
+            if v2.index() < v1.index():
+                continue
+            new_edge = (v1.index(), v2.index())
+            if self.edge_exists(v2, v1) or edge.donor().is_altruistic():
+                g.add_node(new_edge[0])
+                g.add_node(new_edge[1])
+                g.add_edge(new_edge)
+                translate[new_edge] = edge
+        count = len(translate)
+        for ndd in ndds:
+            for edge in ndd.edges:
+                v1 = edge.donor()
+                v2 = edge.target()
+                new_edge = (v2.index(), count+v1.index())
+                g.add_node(new_edge[0])
+                g.add_node(new_edge[1])
+                g.add_edge(new_edge)
+                translate[new_edge] = edge
+        # TODO Add NDD edges to this graph!
+        matchable = g.find_maximally_matchable_edges()
+        LOGGER.info("Found %s maximally matchable edges" % len(matchable))
+        return (translate[e] for e in matchable)

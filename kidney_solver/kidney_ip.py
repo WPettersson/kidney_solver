@@ -5,7 +5,7 @@ import logging
 import sys
 from xml.etree import ElementTree as ET
 
-from kidney_solver.kidney_digraph import cycle_score
+from kidney_solver.kidney_digraph import cycle_score, cycle_contains
 from kidney_solver.kidney_ndds import create_relabelled_ndds, Chain, find_chains
 from kidney_solver import kidney_utils
 
@@ -52,6 +52,7 @@ class OptConfig(object):
         self.relax = relax
         self._only_size = size
         self.details = details
+        self._constrain_maximal = False
         if size:
             LOGGER.info("Only optimising for size.")
 
@@ -425,17 +426,19 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
             vert.collapse_var = m.addVar(vtype=GRB.BINARY)
             vert.collapse_vars = []
 
-    for ndd in ndds:
+    for index, ndd in enumerate(ndds):
         ndd_edge_vars = []
         for edge in ndd.edges:
-            edge_var = m.addVar(vtype=GRB.BINARY)
+            name = "ce_alt_%s" % edge.donor().index()
+            name = name.replace("-", "_")
+            edge_var = m.addVar(vtype=GRB.BINARY, name=name)
             edge.edge_var = edge_var
             ndd_edge_vars.append(edge_var)
             vtx_to_vars[edge.target_v.index()].append(edge_var)
             if max_chain > 1:
                 edge.target_v.grb_vars_in[0].append(edge_var)
         m.update()
-        m.addConstr(quicksum(ndd_edge_vars) <= 1)
+        m.addConstr(quicksum(ndd_edge_vars) <= 1, "ndd_%d" % index)
 
     dists_from_ndd = kidney_utils.get_dist_from_nearest_ndd(digraph, ndds)
 
@@ -446,7 +449,9 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
             edge.grb_var_positions = []
         for i in range(max_chain-1):
             if dists_from_ndd[edge.src.index()] <= i+1:
-                edge_var = m.addVar(vtype=GRB.BINARY)
+                name = "ce_%s_%s" % (edge, i)
+                name = name.replace("-", "_")
+                edge_var = m.addVar(vtype=GRB.BINARY, name=name)
                 edge.grb_vars.append(edge_var)
                 if store_edge_positions:
                     edge.grb_var_positions.append(i+1)
@@ -484,7 +489,7 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
     # At each chain position, sum of edges into a vertex must be >= sum of edges out
     for i in range(max_chain-1):
         for vert in digraph.vs:
-            m.addConstr(quicksum(vert.grb_vars_in[i]) >= quicksum(vert.grb_vars_out[i]))
+            m.addConstr(quicksum(vert.grb_vars_in[i]) >= quicksum(vert.grb_vars_out[i]), "chain_%d_%d" % (vert.index(), i))
 
 ###################################################################################################
 #                                                                                                 #
@@ -787,8 +792,18 @@ def optimise_picef_nhs(cfg):
     three_cycles = []
     three_cycles_with_backarcs = []
     vtx_to_vars = [[] for __ in cfg.digraph.vs]
-    for cycle in cfg.digraph.generate_cycles(cfg.max_cycle):
-        var = model.addVar(vtype=GRB.BINARY)
+    matchable_constraints = {}
+    if cfg._constrain_maximal:
+        LOGGER.debug("Getting max matchable edges")
+        max_matchable = list(cfg.digraph.get_max_matchable_edges_networkx(cfg.ndds))
+        LOGGER.debug([str(s) for s in max_matchable])
+        for e in max_matchable:
+            matchable_constraints[e] = []
+            LOGGER.debug("%s is necessary", e)
+        LOGGER.info("Constraining %d maximally matchable edges" % len(max_matchable))
+    for index, cycle in enumerate(cfg.digraph.generate_cycles(cfg.max_cycle)):
+        name = "_".join(str(v) for v in cycle)
+        var = model.addVar(vtype=GRB.BINARY, name=name)
         cycle_vars.append((var, cycle))
         for vert in cycle:
             vtx_to_vars[vert.index()].append(var)
@@ -807,6 +822,11 @@ def optimise_picef_nhs(cfg):
                 if backarc:
                     three_cycles_with_backarcs.append(var)
                     break
+        if cfg._constrain_maximal:
+            for edge in max_matchable:
+                if cycle_contains(cycle, edge):
+                    matchable_constraints[edge].append(var)
+
     LOGGER.info("Number of cycles: %d", len(cycle_vars))
     cfg.numCycles = len(cycle_vars)
     model.update()
@@ -815,11 +835,20 @@ def optimise_picef_nhs(cfg):
     LOGGER.debug("Adding chain variables and constraints")
     add_chain_vars_and_constraints(cfg.digraph, cfg.ndds, cfg.max_chain, model, vtx_to_vars,
                                    store_edge_positions=True, store_collapse_chains=False)
+    if cfg._constrain_maximal:
+        for edge in max_matchable:
+            matchable_constraints[edge].extend(edge.grb_vars)
+        for key, list_of_vars in matchable_constraints.items():
+            if list_of_vars:
+                name = "must_use_%s" % key
+                name = name.replace("-","_")
+                model.addConstr(quicksum(set(list_of_vars)) == 1, name=name)
 
     LOGGER.debug("Adding vertex constraints")
-    for var_list in vtx_to_vars:
+    for index, var_list in enumerate(vtx_to_vars):
         if var_list:
-            model.addConstr(quicksum(var_list) <= 1)
+            model.addConstr(quicksum(var_list) <= 1, "vert_%d" % index)
+
 
     first_edges = []
     second_edges = []
@@ -833,87 +862,85 @@ def optimise_picef_nhs(cfg):
     short_chains = quicksum(first_edges) - quicksum(second_edges)
     long_chains = quicksum(second_edges)
 
-    for iteration in range(5):
-        LOGGER.debug("Calculating objective in round %d", (iteration+1))
-        # First just maximise 2-cycles, 3-cycles with backarcs, short
-        # chains and collapsible long chains
-        obj = (quicksum(two_cycles) +
-               quicksum(three_cycles_with_backarcs) + short_chains + long_chains)
-        if iteration == 0:
-            model.setObjective(obj, GRB.MAXIMIZE)
-            optimise(model, cfg)
-            if model.status != GRB.OPTIMAL:
-                return None
-            obj1_value = model.getObjective().getValue()
-            LOGGER.debug("First round complete, objective is %d", obj1_value)
-            continue
-        # Add constraint keeping the first objective at its optimal value
-        model.addConstr(obj >= obj1_value)
 
-        # Next maximise number of transplants
-        obj = (quicksum(len(cycle) * var for (var, cycle) in cycle_vars) +
-               quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
-               quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
-        if iteration == 1:
-            model.setObjective(obj, GRB.MAXIMIZE)
-            optimise(model, cfg)
-            if model.status != GRB.OPTIMAL:
-                return None
-            obj2_value = model.getObjective().getValue()
-            LOGGER.debug("Second round complete, size is %d", obj2_value)
-            continue
-        # Add constraint on second objective
-        model.addConstr(obj >= obj2_value)
+    # First just maximise 2-cycles, 3-cycles with backarcs, short
+    # chains and collapsible long chains
+    obj = (quicksum(two_cycles) +
+        quicksum(three_cycles_with_backarcs) + short_chains + long_chains)
+    model.setObjective(obj, GRB.MAXIMIZE)
+    optimise(model, cfg)
+    if model.status != GRB.OPTIMAL:
+        LOGGER.warning("First round not found optimal: %s.", model.status)
+        return None
+    obj1_value = model.getObjective().getValue()
+    LOGGER.debug("First round complete, objective is %d", obj1_value)
+    # Add constraint keeping the first objective at its optimal value
+    model.addConstr(obj >= obj1_value, "obj1_limit")
 
-        # Third objective, minimize three-ways
-        obj = quicksum(three_cycles)
-        if iteration == 2:
-            model.setObjective(obj, GRB.MINIMIZE)
-            optimise(model, cfg)
-            if model.status != GRB.OPTIMAL:
-                return None
-            obj3_value = model.getObjective().getValue()
-            LOGGER.debug("Third round complete, size is %d", obj3_value)
-            continue
+    # Next maximise number of transplants
+    obj = (quicksum(len(cycle) * var for (var, cycle) in cycle_vars) +
+        quicksum(e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
+        quicksum(var for e in cfg.digraph.es for var in e.grb_vars))
+    model.setObjective(obj, GRB.MAXIMIZE)
+    if cfg._constrain_maximal:
+        model.write("matchable.mps")
+        model.write("matchable.lp")
+    else:
+        model.write("default.mps")
+        model.write("default.lp")
+    optimise(model, cfg)
+    if model.status != GRB.OPTIMAL:
+        return None
+    obj2_value = model.getObjective().getValue()
+    LOGGER.debug("Second round complete, size is %d", obj2_value)
+    # Add constraint on second objective
+    model.addConstr(obj >= obj2_value)
 
-        model.addConstr(obj <= obj3_value)
+    # Third objective, minimize three-ways
+    obj = quicksum(three_cycles)
+    model.setObjective(obj, GRB.MINIMIZE)
+    optimise(model, cfg)
+    if model.status != GRB.OPTIMAL:
+        return None
+    obj3_value = model.getObjective().getValue()
+    LOGGER.debug("Third round complete, size is %d", obj3_value)
+    model.addConstr(obj <= obj3_value)
 
-        # Fourth objective, maximise three-ways with back-arcs and collapsible
-        # long chains
-        obj = quicksum(three_cycles_with_backarcs) + quicksum(two_cycles)
-        if iteration == 3:
-            model.setObjective(obj, GRB.MAXIMIZE)
-            optimise(model, cfg)
-            if model.status != GRB.OPTIMAL:
-                return None
-            obj4_value = model.getObjective().getValue()
-            LOGGER.debug("Fourth round complete, size is %d", obj4_value)
-            continue
-        model.addConstr(obj >= obj4_value)
-        # This must now be the last iteration
-        obj_expr = quicksum(cycle_score(cycle, cfg.edge_success_prob, nhs=True)
-                            * var for (var, cycle) in cycle_vars)
-        if cfg.max_chain != 0:
-            for vertex in cfg.ndds + cfg.digraph.vs:
-                for chain_one in vertex.edges:
-                    next_vert = chain_one.target()
-                    for chain_two in next_vert.edges:
-                        for chain_var_one, chain_one_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
-                            for chain_var_two, chain_two_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
-                                # Ensure that chain_two can follow chain_one
-                                if chain_one_index + 1 != chain_two_index:
-                                    continue
-                                combined = model.addVar(vtype=GRB.BINARY)
-                                model.addConstr(-2 * combined + chain_var_one + chain_var_two >= 0)
-                                obj_expr += chain_one.age_formula(chain_two.donor()) * cfg.edge_success_prob
+    # Fourth objective, maximise three-ways with back-arcs and collapsible
+    # long chains
+    obj = quicksum(three_cycles_with_backarcs) + quicksum(two_cycles)
+    model.setObjective(obj, GRB.MAXIMIZE)
+    optimise(model, cfg)
+    if model.status != GRB.OPTIMAL:
+        return None
+    obj4_value = model.getObjective().getValue()
+    LOGGER.debug("Fourth round complete, size is %d", obj4_value)
+    model.addConstr(obj >= obj4_value)
 
-        model.setObjective(obj_expr, GRB.MAXIMIZE)
-        optimise(model, cfg)
+    # This must now be the last iteration
+    obj_expr = quicksum(cycle_score(cycle, cfg.edge_success_prob, nhs=True)
+                        * var for (var, cycle) in cycle_vars)
+    if cfg.max_chain != 0:
+        for vertex in cfg.ndds + cfg.digraph.vs:
+            for chain_one in vertex.edges:
+                next_vert = chain_one.target()
+                for chain_two in next_vert.edges:
+                    for chain_var_one, chain_one_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
+                        for chain_var_two, chain_two_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
+                            # Ensure that chain_two can follow chain_one
+                            if chain_one_index + 1 != chain_two_index:
+                                continue
+                            combined = model.addVar(vtype=GRB.BINARY)
+                            model.addConstr(-2 * combined + chain_var_one + chain_var_two >= 0)
+                            obj_expr += chain_one.age_formula(chain_two.donor()) * cfg.edge_success_prob
 
-        if model.status != GRB.OPTIMAL:
-            return None
-        obj5_value = model.getObjective().getValue()
-        LOGGER.debug("Fifth round complete, size is %d", obj5_value)
+    model.setObjective(obj_expr, GRB.MAXIMIZE)
+    optimise(model, cfg)
+
+    if model.status != GRB.OPTIMAL:
+        return None
+    obj5_value = model.getObjective().getValue()
+    LOGGER.debug("Fifth round complete, size is %d", obj5_value)
 
     return OptSolution(ip_model=model,
                        cycles=[cycle for (var, cycle) in cycle_vars if var.x > 0.5],
