@@ -6,9 +6,8 @@ import logging
 
 from kidney_solver.forest import Forest
 
-
 LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.WARNING)
+#LOGGER.setLevel(logging.INFO)
 
 def get_blossom_path(blossom, entry, leave):
     """Given a blossom (odd length cycle) and an leave and entry point, find the
@@ -55,12 +54,15 @@ class Graph(object):
     def __init__(self):
         self._nodes = {}
         self._edges = []
+        self._biggest = -1
 
     def add_node(self, node):
         """Add a node."""
         # List of adjacent vertices.
         if node not in self._nodes:
             self._nodes[node] = []
+            if node > self._biggest:
+                self._biggest = node
 
     def add_edge(self, edge):
         """Add an edge."""
@@ -100,29 +102,41 @@ class Graph(object):
             path, forced = self.find_augmenting_path(matching)
             if not path:
                 break
-            # Follow augmenting path, which starts and ends with open edges not in
-            # the matching, and alternates with edges that currently are in the
-            # matching.
-            for edge in path:
-                if edge in matching:
-                    matching.remove(edge)
+            for index, edge in enumerate(path):
+                # Follow augmenting path, which starts and ends with open edges not in
+                # the matching, and alternates with edges that currently are in the
+                # matching.
+                if index % 2 == 1:
+                    # Edge to be removed from matching
+                    try:
+                        matching.remove(edge)
+                    except ValueError as e:
+                        LOGGER.error("Tried to remove %s from %s", edge, sorted(matching, key=lambda x:x[0]))
+                        raise e
                 else:
                     matching.append(edge)
         return matching
 
     def find_maximally_matchable_edges(self):
         """Find all edges which are in every maximum sized matching."""
-        LOGGER.warn("Finding max")
         largest = self.find_a_maximum_matching()
+        LOGGER.info("Largest matching has size %d", len(largest))
         matchable = []
-        for e in list(self._edges):
+        interesting = list(largest)
+        while interesting:
+            e = interesting.pop()
+            if e not in self._edges:
+                e = (e[1], e[0])
+            LOGGER.debug("Testing %s", e)
             self.remove_edge(e)
             new_matching = list(largest)
             if e in new_matching:
                 new_matching.remove(e)
-            LOGGER.warn("Testing %s", e)
-            if len(self.find_a_maximum_matching(new_matching)) < len(largest):
+            new_max = self.find_a_maximum_matching(new_matching)
+            if len(new_max) < len(largest):
+                LOGGER.debug("new matching has size %d", len(new_max))
                 matchable.append(e)
+                LOGGER.debug("%s is matchable", e)
             self.add_edge(e)
         return matchable
 
@@ -141,8 +155,8 @@ class Graph(object):
             exposed[vertex] = True
         for m in matching:
             marked[m] = True
-            marked_v[m[0]] = True
-            marked_v[m[1]] = True
+            #marked_v[m[0]] = True
+            #marked_v[m[1]] = True
             if m[0] in exposed:
                 del exposed[m[0]]
             if m[1] in exposed:
@@ -166,7 +180,6 @@ class Graph(object):
                     continue
                 if (v, w) in marked or (w, v) in marked:
                     continue
-                LOGGER.debug("Interesting edge " + str(v) + ", " + str(w))
                 if not forest.has_node(w):
                     #LOGGER.debug("w is matched")
                     # w is matched in M
@@ -188,7 +201,15 @@ class Graph(object):
                         if forest.root(v) != forest.root(w):
                             # Report augmenting path
                             forced = self.degree(v) == 1 and self.degree(w) == 1
-                            path = forest.path_to_root(v) + [(v, w)] + forest.path_to_root(w)
+                            if v < w:
+                                pathA = forest.path_to_root(v)
+                                pathA.reverse()
+                                path = pathA + [(v, w)] + forest.path_to_root(w)
+                            else:
+                                pathA = forest.path_to_root(v)
+                                pathA.reverse()
+                                path = pathA + [(w, v)] + forest.path_to_root(w)
+                            LOGGER.debug("Found a path %s", path)
                             return path, forced
                         else:
                             # Blossom on e + path from v to w
@@ -196,7 +217,9 @@ class Graph(object):
                             # Convert blossom to list of vertices only
                             # Shrink graph (creating new?)
                             g = Graph()
-                            new_node = len(self._nodes)
+                            LOGGER.debug("Shrinking on %s", blossom)
+                            new_node = self._biggest + 1
+                            LOGGER.debug("Adding new node %d" % new_node)
                             translates = {}
                             for n in self._nodes:
                                 g.add_node(n)
@@ -207,9 +230,13 @@ class Graph(object):
                                 if edge[0] in blossom:
                                     g.add_edge((edge[1], new_node))
                                     translates[(edge[1], new_node)] = edge
+                                    if edge[1] == 490:
+                                        LOGGER.debug("Adding %s", (edge[1], new_node))
                                 elif edge[1] in blossom:
                                     g.add_edge((edge[0], new_node))
                                     translates[(edge[0], new_node)] = edge
+                                    if edge[0] == 490:
+                                        LOGGER.debug("Adding %s", (edge[0], new_node))
                                 else:
                                     g.add_edge(edge)
                             # Also convert matching!
@@ -228,10 +255,12 @@ class Graph(object):
                             # Expand path onto "this" graph
                             real_path = []
                             entry = None
+                            LOGGER.debug("Found untranslated path %s", path)
                             if path is not None:
                                 for edge in path:
                                     if edge in translates:
                                         translated = translates[edge]
+                                        LOGGER.debug("%s is translated from %s", edge, translated)
                                         # Add blossom bit
 
                                         # If entry is None, we don't know where
@@ -259,6 +288,7 @@ class Graph(object):
                                             real_path.append(translated)
                                     else:
                                         real_path.append(edge)
+                            LOGGER.debug("Found translated path %s", real_path)
                             return real_path, forced
                 marked[(v, w)] = True
             marked_v[v] = True

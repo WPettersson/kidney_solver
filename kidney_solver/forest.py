@@ -106,7 +106,10 @@ class Forest(object):
         path = []
         parent = self._parent[now]
         while parent:
-            path.append((now, parent))
+            if now < parent:
+                path.append((now, parent))
+            else:
+                path.append((parent, now))
             now = parent
             parent = self._parent[now]
         return path
