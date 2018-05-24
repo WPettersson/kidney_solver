@@ -25,7 +25,7 @@ def solve_kep(cfg, formulation, use_relabelled=True):
         "hpief_2prime_full_red": ("HPIEF'' with full reduction by cycle generation", kidney_ip.optimise_hpief_2prime_full_red),
         "picef": ("PICEF", kidney_ip.optimise_picef),
         "nhs": ("PICEF-NHS", kidney_ip.optimise_picef_nhs),
-        "nhs_chains": ("PICEF-NHS-CHAINS", kidney_ip.optimise_picef_nhs_chains),
+        #"nhs_chains": ("PICEF-NHS-CHAINS", kidney_ip.optimise_picef_nhs_chains),
         "cf":   ("Cycle formulation",
                  kidney_ip.optimise_ccf)
     }
