@@ -72,15 +72,16 @@ class OptSolution(object):
         total_score: The total score of the solution
     """
 
-    def __init__(self, ip_model, cycles, chains, digraph, ndds=None, edge_success_prob=1):
+    def __init__(self, ip_model, cycles, chains, digraph, ndds=None, edge_success_prob=1, nhs=False):
         self.ip_model = ip_model
         self.cycles = cycles
         self.chains = chains
         self.digraph = digraph
         self._ndds = ndds
         self.total_score = (sum(c.score for c in chains) +
-                sum(cycle_score(c, edge_success_prob) for c in cycles))
+                sum(cycle_score(c, edge_success_prob, nhs) for c in cycles))
         self.edge_success_prob = edge_success_prob
+        self.nhs = nhs
 
     def display(self):
         """Print the optimal cycles and chains to standard output."""
@@ -100,7 +101,7 @@ class OptSolution(object):
             cycle_verts = cycle_verts[min_index_pos:] + cycle_verts[:min_index_pos]
             # Sort the cycles
             cycle_verts.sort()
-            score = cycle_score(cycle, self.edge_success_prob)
+            score = cycle_score(cycle, self.edge_success_prob, self.nhs)
             string += "\t".join(str(v_id) for v_id in cycle_verts) + "\t%f" % score + "\n"
             total += len(cycle)
         string += "chains:\n"
@@ -239,9 +240,9 @@ class OptSolution(object):
 def optimise(model, cfg):
     """Optimise a model."""
     model.update()
-    LOGGER.info("Number of variables: %d", model.numVars)
-    LOGGER.info("Number of constraints: %d", model.numConstrs)
-    LOGGER.info("Number of non-zero coefficients: %d", model.numNZs)
+    LOGGER.debug("Number of variables: %d", model.numVars)
+    LOGGER.debug("Number of constraints: %d", model.numConstrs)
+    LOGGER.debug("Number of non-zero coefficients: %d", model.numNZs)
     if cfg.details:
         with open(cfg.details, "a") as outfile:
             outfile.write("%d,%d,%d,%d\n" % (cfg.numCycles, model.numVars,
@@ -320,6 +321,8 @@ def add_unlimited_vars_and_constraints(digraph, ndds, m):
         ndd_edge_vars = []
         for e in ndd.edges:
             edge_var = m.addVar(vtype=GRB.BINARY)
+            e.grb_vars = [edge_var]
+            e.grb_var_positions = [0]
             e.edge_var = edge_var
             ndd_edge_vars.append(edge_var)
             e.target_v.grb_vars_in.append(edge_var)
@@ -363,7 +366,7 @@ def optimise_uuef(cfg):
 
     obj_expr = ( quicksum(e.score * e.edge_var for ndd in cfg.ndds for e in ndd.edges) +
                  quicksum(e.score * var for e in cfg.digraph.es for var in e.grb_vars) )
-   
+
     m.setObjective(obj_expr, GRB.MAXIMIZE)
     optimise(m, cfg)
 
@@ -433,6 +436,8 @@ def add_chain_vars_and_constraints(digraph, ndds, max_chain, m, vtx_to_vars,
             name = name.replace("-", "_")
             edge_var = m.addVar(vtype=GRB.BINARY, name=name)
             edge.edge_var = edge_var
+            edge.grb_vars = [edge_var]
+            edge.grb_var_positions = [0]
             ndd_edge_vars.append(edge_var)
             vtx_to_vars[edge.target_v.index()].append(edge_var)
             if max_chain > 1:
@@ -924,15 +929,16 @@ def optimise_picef_nhs(cfg):
         for vertex in cfg.ndds + cfg.digraph.vs:
             for chain_one in vertex.edges:
                 next_vert = chain_one.target()
-                for chain_two in next_vert.edges:
-                    for chain_var_one, chain_one_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
-                        for chain_var_two, chain_two_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
+                next_donor = chain_one.target().donor()
+                for chain_var_one, chain_one_index in zip(chain_one.grb_vars, chain_one.grb_var_positions):
+                    obj_expr += chain_one.age_formula(next_donor) * cfg.edge_success_prob**(chain_one_index+1) * chain_var_one
+                    for chain_two in next_vert.edges:
+                        for chain_var_two, chain_two_index in zip(chain_two.grb_vars, chain_two.grb_var_positions):
                             # Ensure that chain_two can follow chain_one
                             if chain_one_index + 1 != chain_two_index:
                                 continue
                             combined = model.addVar(vtype=GRB.BINARY)
                             model.addConstr(-2 * combined + chain_var_one + chain_var_two >= 0)
-                            obj_expr += chain_one.age_formula(chain_two.donor()) * cfg.edge_success_prob
 
     model.setObjective(obj_expr, GRB.MAXIMIZE)
     optimise(model, cfg)
@@ -1148,14 +1154,14 @@ def optimise_ccf(cfg):
     cycles = cfg.digraph.find_cycles(cfg.max_cycle)
     LOGGER.info("Finding chains")
     chains = find_chains(cfg.digraph, cfg.ndds, cfg.max_chain, cfg.edge_success_prob)
-        
+
     m = create_ip_model(cfg.timelimit, cfg.verbose)
     m.params.method = 2
 
-    cycle_vars = [m.addVar(vtype=GRB.BINARY) for __ in cycles]
-    chain_vars = [m.addVar(vtype=GRB.BINARY) for __ in chains]
+    cycle_vars = [m.addVar(vtype=GRB.BINARY, name="cycle_%d"%index) for index, __ in enumerate(cycles)]
+    chain_vars = [m.addVar(vtype=GRB.BINARY, name="chain_%d"%index) for index, __ in enumerate(chains)]
     m.update()
-    
+
     ndd_to_vars = [[] for __ in cfg.ndds]
     vtx_to_vars = [[] for __ in cfg.digraph.vs]
 

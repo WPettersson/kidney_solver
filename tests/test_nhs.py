@@ -11,7 +11,7 @@ def test_instance_with_twocycle_and_threecycle():
                                                         max_cycle=3,
                                                         max_chain=2))
     eq_(len(opt_result.cycles), 1)
-    eq_(opt_result.total_score, 2)
+    eq_(opt_result.total_score, 8.098)
 
 
 def test_instance_with_twocycle_and_threecycle_max_matchable():
@@ -20,7 +20,7 @@ def test_instance_with_twocycle_and_threecycle_max_matchable():
     cfg._constrain_maximal = True
     opt_result = k_ip.optimise_picef_nhs(cfg)
     eq_(len(opt_result.cycles), 1)
-    eq_(opt_result.total_score, 2)
+    eq_(opt_result.total_score, 8.098)
 
 
 def test_instance_with_two_threeway_or_three_twoway():
@@ -29,7 +29,7 @@ def test_instance_with_two_threeway_or_three_twoway():
                                                         max_cycle=3,
                                                         max_chain=2))
     eq_(len(opt_result.cycles), 3)
-    eq_(opt_result.total_score, 6)
+    assert_almost_equal(opt_result.total_score, 24.294)
 
 
 def test_instance_with_two_threeway_or_three_twoway_max_matchable():
@@ -38,7 +38,7 @@ def test_instance_with_two_threeway_or_three_twoway_max_matchable():
     cfg._constrain_maximal = True
     opt_result = k_ip.optimise_picef_nhs(cfg)
     eq_(len(opt_result.cycles), 3)
-    eq_(opt_result.total_score, 6)
+    assert_almost_equal(opt_result.total_score, 24.294)
 
 
 def test_instance_with_threeway_with_backarc():
@@ -47,7 +47,7 @@ def test_instance_with_threeway_with_backarc():
                                                         max_cycle=3,
                                                         max_chain=2))
     eq_(len(opt_result.cycles), 1)
-    eq_(opt_result.total_score, 3)
+    assert_almost_equal(opt_result.total_score, 12.147)
 
 
 def test_instance_with_threeway_with_backarc_max_matchable():
@@ -56,7 +56,7 @@ def test_instance_with_threeway_with_backarc_max_matchable():
     cfg._constrain_maximal = True
     opt_result = k_ip.optimise_picef_nhs(cfg)
     eq_(len(opt_result.cycles), 1)
-    eq_(opt_result.total_score, 3)
+    assert_almost_equal(opt_result.total_score, 12.147)
 
 
 def test_instance_with_threeway_with_backarc_or_threeway_without():
@@ -65,7 +65,7 @@ def test_instance_with_threeway_with_backarc_or_threeway_without():
                                                         max_cycle=3,
                                                         max_chain=2))
     eq_(len(opt_result.cycles), 1)
-    eq_(opt_result.total_score, 3)
+    assert_almost_equal(opt_result.total_score, 12.147)
     cycle = [v.patient_id() for v in opt_result.cycles[0]]
     eq_(cycle, [1, 2, 4])
 
@@ -76,6 +76,24 @@ def test_instance_with_threeway_with_backarc_or_threeway_without_max_matchable()
     cfg._constrain_maximal = True
     opt_result = k_ip.optimise_picef_nhs(cfg)
     eq_(len(opt_result.cycles), 1)
-    eq_(opt_result.total_score, 3)
+    assert_almost_equal(opt_result.total_score, 12.147)
     cycle = [v.patient_id() for v in opt_result.cycles[0]]
     eq_(cycle, [1, 2, 4])
+
+
+def test_instance_with_one_chain():
+    graph, altruists = read_digraph_file("test-fixtures/test-alt1.json")
+    cfg = k_ip.OptConfig(graph, ndds=altruists, max_cycle=3, max_chain=2)
+    opt_result = k_ip.optimise_picef_nhs(cfg)
+    eq_(len(opt_result.cycles), 0)
+    eq_(len(opt_result.chains), 1)
+    assert_almost_equal(opt_result.total_score, 8.098)
+
+
+def test_instance_with_chain_with_option():
+    graph, altruists = read_digraph_file("test-fixtures/test-alt2.json")
+    cfg = k_ip.OptConfig(graph, ndds=altruists, max_cycle=3, max_chain=2)
+    opt_result = k_ip.optimise_picef_nhs(cfg)
+    eq_(len(opt_result.cycles), 0)
+    eq_(len(opt_result.chains), 1)
+    assert_almost_equal(opt_result.total_score, 9.098)

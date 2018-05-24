@@ -7,19 +7,37 @@ each of these edges points towards a vertex (which represents a donor-patient pa
 in the directed graph.
 """
 
+
+from kidney_solver.kidney_digraph import Edge
+
+
 class Ndd(object):
     """A non-directed donor"""
-    def __init__(self):
+    def __init__(self, index):
         self.edges = []
-        self._donor_id = None
+        self._donor_id = index
 
     def add_edge(self, target, score, explanation):
         """Add an edge representing compatibility with a patient who appears as a
         vertex in the directed graph."""
         self.edges.append(NddEdge(target, score, explanation))
 
+    def index(self):
+        """The index of this Ndd."""
+        return self._donor_id
 
-class NddEdge:
+    def donor_id(self):
+        """The id of this donor."""
+        return self._donor_id
+
+    def __str__(self):
+        return "A(%d)" % self._donor_id
+
+    def __repr__(self):
+        return str(self)
+
+
+class NddEdge(Edge):
     """An edge pointing from an NDD to a vertex in the directed graph"""
     def __init__(self, target_v, score, donor):
         self.target_v = target_v
@@ -52,7 +70,7 @@ def create_relabelled_ndds(ndds, old_to_new_vtx):
     If a target vertex in an original NDD had ID i, then the new target vertex
     will be old_to_new_vtx[i].
     """
-    new_ndds = [Ndd() for ndd in ndds]
+    new_ndds = [Ndd(old_to_new_vtx[ndd.index()]) for ndd in ndds]
     for i, ndd in enumerate(ndds):
         for edge in ndd.edges:
             new_ndds[i].add_edge(old_to_new_vtx[edge.target().index()], edge.score, edge.donor())
@@ -74,8 +92,8 @@ class Chain(object):
         self.score = score
 
     def __repr__(self):
-        return ("Chain NDD{} ".format(self.ndd_index) +
-                        " ".join(str(v) for v in self.vtx_indices) +
+        return ("Chain NDD{} ".format(self.ndd_index) + "[" +
+                        " ".join(str(v) for v in self.vtx_indices) + "]" +
                         " with score " + str(self.score))
 
     def __cmp__(self, other):

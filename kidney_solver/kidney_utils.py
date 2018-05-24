@@ -94,7 +94,19 @@ def find_selected_path(v_id, next_vv):
         v_id = next_vv[v_id]
         path.append(v_id)
     return path
-        
+
+def find_selected_path_edges(next_vertex, mapping):
+    path = []
+    count = 0
+    while next_vertex in mapping:
+        first = mapping[next_vertex]
+        path.append(first)
+        next_vertex = first.target().index()
+        count += 1
+        if count > 50:
+            break
+    return path
+
 def find_selected_cycle(v_id, next_vv):
     cycle = [v_id]
     while v_id in next_vv:
@@ -104,26 +116,33 @@ def find_selected_cycle(v_id, next_vv):
         else:
             cycle.append(v_id)
     return None
-        
-def get_optimal_chains(digraph, ndds, edge_success_prob=1):
+
+
+def chain_score(path, edge_success_prob, nhs=False):
+    """Calculate the total score of a given chain, given as a list of edges."""
+    if nhs:
+        score = sum([e.age_formula(e.target().donor())*edge_success_prob**(index+1) for index, e in enumerate(path)])
+    else:
+        score = sum([e.score*edge_success_prob**(index+1) for index, e in enumerate(path)])
+    return score
+
+
+def get_optimal_chains(digraph, ndds, edge_success_prob=1, nhs=False):
     # Chain edges
     chain_next_vv = {e.src.index(): e.tgt.index()
                         for e in digraph.es
                         for var in e.grb_vars
                         if var.x > 0.1}
-        
+    selected_edges = {e.src.index(): e for e in digraph.es for var in e.grb_vars if var.x > 0.1}
     optimal_chains = []
     for i, ndd in enumerate(ndds):
         for e in ndd.edges:
             if e.edge_var.x > 0.1:
                 vtx_indices = find_selected_path(e.target_v.index(), chain_next_vv)
-                # Get score of edge from NDD
-                score = e.score * edge_success_prob
-                # Add scores of edges between vertices
-                for j in range(len(vtx_indices) - 1):
-                    score += digraph.adj_mat[vtx_indices[j]][vtx_indices[j+1]].score * edge_success_prob**(j+2)
+                chain_edges = [e]
+                chain_edges.extend(find_selected_path_edges(e.target().index(), selected_edges))
+                score = chain_score(chain_edges, edge_success_prob, nhs)
                 optimal_chains.append(kidney_ndds.Chain(i, vtx_indices, score))
-    
     return optimal_chains
 
 def selected_edges_to_cycles(digraph, cycle_start_vv, cycle_next_vv):

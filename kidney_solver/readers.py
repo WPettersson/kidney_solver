@@ -85,7 +85,7 @@ def read_digraph_xml(lines):
             patient_lookup[int(sources[0].text)] = num_regular
             num_regular += 1
     digraph = Digraph(num_regular)
-    ndds = [Ndd() for _ in range(num_altruists)]
+    ndds = [Ndd(index) for index in range(num_altruists)]
     edge_exists = [[False for _ in digraph.vs] for __ in ndds]
     for index, donor in enumerate(donors):
         sources = donor.find("sources")
@@ -93,6 +93,7 @@ def read_digraph_xml(lines):
             source = altruist_lookup[index]
             age = int(donor.find("dage").text)
             donor_object = Donor(int(index), False, age)
+            digraph.vs[source].set_donor(donor_object)
             matches = donor.find("matches")
             if matches:
                 for match in matches:
@@ -117,6 +118,7 @@ def read_digraph_xml(lines):
             source = patient_lookup[int(sources[0].text)]
             age = int(donor.find("dage").text)
             donor_object = Donor(int(index), False, age)
+            digraph.vs[source].set_donor(donor_object)
             matches = donor.find("matches")
             if matches:
                 for match in matches:
@@ -131,7 +133,6 @@ def read_digraph_xml(lines):
                     if source == target:
                         raise KidneyReadException("Self-loop from {0} to {0} not "
                                                   "permitted".format(source))
-                    digraph.vs[source].set_donor_id(donor.attrib["donor_id"])
                     digraph.vs[target].set_patient_id(match.find("recipient").text)
                     if digraph.edge_exists(digraph.vs[source], digraph.vs[target]):
                         digraph.update_edge(digraph.vs[source],
@@ -169,13 +170,14 @@ def read_digraph_json(lines):
             num_regular += 1
     digraph = Digraph(num_regular)
     LOGGER.info("%d regular donors, %d altruistic donors", num_regular, num_altruists)
-    ndds = [Ndd() for _ in range(num_altruists)]
+    ndds = [Ndd(index) for index in range(num_altruists)]
     edge_exists = [[False for _ in digraph.vs] for __ in ndds]
     for index, donor in json_data["data"].items():
         if "altruistic" in donor:
             source = altruist_lookup[int(index)]
             age = int(donor["dage"])
             donor_object = Donor(int(index), True, age)
+            digraph.vs[source].set_donor(donor_object)
             for match in donor["matches"]:
                 target = patient_lookup[match["recipient"]]
                 score = match["score"]
@@ -199,6 +201,7 @@ def read_digraph_json(lines):
             source = patient_lookup[donor["sources"][0]]
             age = int(donor["dage"])
             donor_object = Donor(int(index), False, age)
+            digraph.vs[source].set_donor(donor_object)
             if digraph.vs[source].patient_id() == -1:
                 digraph.vs[source].set_patient_id(donor["sources"][0])
             else:
@@ -235,7 +238,7 @@ def read_ndds(lines, digraph):
 
     ndds = []
     ndd_count, edge_count = [int(x) for x in lines[0].split()]
-    ndds = [Ndd() for _ in range(ndd_count)]
+    ndds = [Ndd(index) for index in range(ndd_count)]
 
     # Keep track of which edges have been created already so that we can
     # detect duplicates
@@ -246,7 +249,7 @@ def read_ndds(lines, digraph):
         src_id = int(tokens[0])
         tgt_id = int(tokens[1])
         score = float(tokens[2])
-        explanation = "Donor %s (altruist) to patient %s" % (src_id, tgt_id)
+        donor = ndds[src_id]
         if src_id < 0 or src_id >= ndd_count:
             raise KidneyReadException("NDD index {} out of range.".format(src_id))
         if tgt_id < 0 or tgt_id >= digraph.n:
@@ -254,7 +257,7 @@ def read_ndds(lines, digraph):
         if edge_exists[src_id][tgt_id]:
             raise KidneyReadException("Duplicate edge from NDD {0} to vertex "
                                       "{1}.".format(src_id, tgt_id))
-        ndds[src_id].add_edge(digraph.vs[tgt_id], score, explanation)
+        ndds[src_id].add_edge(digraph.vs[tgt_id], score, donor)
         edge_exists[src_id][tgt_id] = True
 
     if lines[edge_count+1].split()[0] != "-1" or len(lines) < edge_count+2:

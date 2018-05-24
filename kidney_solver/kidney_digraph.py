@@ -85,18 +85,25 @@ class Vertex(object):
         """
         return self._patient_id
 
-    def set_donor_id(self, donor_id):
-        """Set the donor ID of this vertex."""
-        self._donor_id = donor_id
+    def set_donor(self, donor):
+        """Set the donor of this vertex."""
+        self._donor = donor
+
+    def donor(self):
+        """The donor of this particular vertex."""
+        return self._donor
 
     def donor_id(self):
         """Get the donor ID of the donor-patient-pair represented by this
         vertex.
         """
-        return self._donor_id
+        return self._donor.index()
 
     def __str__(self):
         return "V{}".format(self._index)
+
+    def __repr__(self):
+        return str(self)
 
     def index(self):
         """The index of the vertex."""
@@ -112,7 +119,10 @@ class Edge(object):
         self.tgt = tgt # target vertex
         self._donor = donor
     def __str__(self):
-        return ("V" + str(self.src.index()) + "-V" + str(self.tgt.index()))
+        return ("%s" % str(self.src) + "-%s" % str(self.tgt))
+
+    def __repr__(self):
+        return str(self)
 
     def source(self):
         """The source of this edge."""
